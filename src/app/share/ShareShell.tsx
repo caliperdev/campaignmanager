@@ -104,38 +104,15 @@ export default function ShareShell({ initialData }: Props) {
         background: "var(--bg-primary)",
       }}
     >
-      <header
+      <div
         style={{
+          flex: 1,
+          minHeight: 0,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "12px 24px",
-          borderBottom: "1px solid var(--border-light)",
-          background: "var(--bg-secondary)",
-          flexShrink: 0,
+          flexDirection: "column",
+          overflow: "hidden",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
-          Monitor — View only
-        </span>
-        <button
-          type="button"
-          onClick={handleSignOut}
-          style={{
-            padding: "8px 14px",
-            fontSize: 13,
-            fontWeight: 500,
-            border: "1px solid var(--border-light)",
-            borderRadius: "var(--radius-md)",
-            background: "var(--bg-primary)",
-            color: "var(--text-primary)",
-            cursor: "pointer",
-          }}
-        >
-          Sign out
-        </button>
-      </header>
-      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         <MonitorContent
           initialData={initialData}
           ct={null}
@@ -147,6 +124,28 @@ export default function ShareShell({ initialData }: Props) {
           forceGlobal
         />
       </div>
+      <button
+        type="button"
+        onClick={handleSignOut}
+        aria-label="Sign out"
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 50,
+          padding: "8px 14px",
+          fontSize: 13,
+          fontWeight: 500,
+          border: "1px solid var(--border-light)",
+          borderRadius: "var(--radius-md)",
+          background: "var(--bg-secondary)",
+          color: "var(--text-primary)",
+          cursor: "pointer",
+          boxShadow: "var(--shadow-subtle)",
+        }}
+      >
+        Sign out
+      </button>
     </div>
   );
 }
