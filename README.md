@@ -40,3 +40,4 @@ npm run start
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for auth (required for login). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key, server-only (required).  |
 # campaign_manager
+# campaignmanager
