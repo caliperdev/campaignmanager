@@ -41,3 +41,4 @@ npm run start
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key, server-only (required).  |
 # campaign_manager
 # campaignmanager
+# campaignmanager
