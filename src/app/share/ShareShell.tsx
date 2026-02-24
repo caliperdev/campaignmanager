@@ -67,15 +67,26 @@ export default function ShareShell({ initialData }: Props) {
   }
 
   return (
-    <MonitorContent
-      initialData={initialData}
-      ct={null}
-      dt={null}
-      campaignTables={[]}
-      dataTables={[]}
-      dimensionOptions={[]}
-      readOnly
-      forceGlobal
-    />
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "var(--bg-primary)",
+      }}
+    >
+      <MonitorContent
+        initialData={initialData}
+        ct={null}
+        dt={null}
+        campaignTables={[]}
+        dataTables={[]}
+        dimensionOptions={[]}
+        readOnly
+        forceGlobal
+      />
+    </div>
   );
 }

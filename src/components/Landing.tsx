@@ -4,14 +4,15 @@ export function Landing() {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        position: "fixed",
+        inset: 0,
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         padding: 24,
         background: "var(--bg-primary)",
         color: "var(--text-primary)",
+        boxSizing: "border-box",
       }}
     >
       <div style={{ textAlign: "center", maxWidth: 420 }}>
