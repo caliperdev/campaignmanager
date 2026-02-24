@@ -32,14 +32,15 @@ export default function LoginContent() {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        position: "fixed",
+        inset: 0,
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         padding: 24,
         background: "var(--bg-primary)",
         color: "var(--text-primary)",
+        boxSizing: "border-box",
       }}
     >
       <div
@@ -50,6 +51,7 @@ export default function LoginContent() {
           background: "var(--bg-secondary)",
           borderRadius: "var(--radius-lg)",
           border: "1px solid var(--border-light)",
+          boxSizing: "border-box",
         }}
       >
         <h1
