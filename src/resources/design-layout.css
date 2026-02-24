@@ -1,0 +1,429 @@
+/* Buho Media – design tokens and layout */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-hover: #f2f2f2;
+  --text-primary: #111111;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+  --accent-dark: #0d2b2a;
+  --accent-hover: #1a403e;
+  --border-light: #e5e5e5;
+  --border-focus: #0d2b2a;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --shadow-subtle: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --font-main: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --anim-ease: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+body.design-layout {
+  margin: 0;
+}
+
+.design-layout {
+  font-family: var(--font-main);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
+
+.design-layout *,
+.design-layout *::before,
+.design-layout *::after {
+  box-sizing: border-box;
+}
+
+.design-layout .app-container {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.design-layout .sidebar {
+  width: 260px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  flex-shrink: 0;
+}
+
+.design-layout .brand {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 32px;
+  padding-left: 12px;
+  letter-spacing: -0.02em;
+}
+
+.design-layout .nav-section {
+  margin-bottom: 24px;
+}
+
+.design-layout .nav-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+  padding-left: 12px;
+  font-weight: 600;
+}
+
+.design-layout .nav-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all 0.2s var(--anim-ease);
+  margin-bottom: 2px;
+  font-weight: 500;
+}
+
+.design-layout .nav-item:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.design-layout .nav-item.active {
+  background-color: #e8ebeb;
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.design-layout .main-content {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Responsive: mobile first */
+.design-layout .page-responsive-padding {
+  padding: 16px !important;
+}
+
+@media (min-width: 768px) {
+  .design-layout .page-responsive-padding {
+    padding: 32px 48px !important;
+  }
+}
+
+.design-layout .page-header-responsive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  row-gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .design-layout .page-header-responsive {
+    justify-content: space-between;
+  }
+}
+
+/* Mobile sidebar overlay */
+.design-layout .mobile-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 40;
+  animation: design-layout-fade-in 0.2s ease-out;
+}
+
+.design-layout .mobile-sidebar-backdrop.is-open {
+  display: block;
+}
+
+.design-layout .mobile-sidebar-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(280px, 85vw);
+  max-width: 100%;
+  z-index: 50;
+  transform: translateX(-100%);
+  transition: transform 0.25s var(--anim-ease);
+  box-shadow: var(--shadow-float);
+}
+
+.design-layout .mobile-sidebar-drawer.is-open {
+  transform: translateX(0);
+}
+
+.design-layout .mobile-header {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .design-layout .mobile-header {
+    display: flex;
+  }
+}
+
+@media (max-width: 767px) {
+  .design-layout .sidebar-desktop-only {
+    display: none;
+  }
+}
+
+@keyframes design-layout-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes design-layout-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scrollbar */
+.design-layout ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.design-layout ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.design-layout ::-webkit-scrollbar-thumb {
+  background: var(--text-tertiary);
+  border-radius: 4px;
+}
+
+.design-layout ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Utilities */
+.design-layout .truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.design-layout .focus-ring:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Button loader */
+@keyframes design-layout-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.design-layout .btn-loader {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: design-layout-spin 0.6s linear infinite;
+  vertical-align: -0.2em;
+  margin-right: 6px;
+}
+
+.design-layout .page-loading-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--accent-dark);
+  border-radius: 50%;
+  animation: design-layout-spin 0.7s linear infinite;
+}
+
+/* React Day Picker – polished flight calendar */
+.design-layout .rdp-flight-wrapper .rdp-root {
+  --rdp-accent-color: var(--accent-dark);
+  --rdp-accent-background-color: rgba(13, 43, 42, 0.08);
+  --rdp-range_middle-background-color: #fde68a;
+  --rdp-range_start-date-background-color: transparent;
+  --rdp-range_end-date-background-color: transparent;
+  --rdp-day_button-border-radius: 6px;
+  --rdp-day-height: 30px;
+  --rdp-day-width: 30px;
+  --rdp-day_button-height: 28px;
+  --rdp-day_button-width: 28px;
+  --rdp-day_button-border: none;
+  --rdp-selected-border: none;
+  --rdp-months-gap: 1.25rem;
+  --rdp-nav_height: 2rem;
+  --rdp-nav_button-height: 1.75rem;
+  --rdp-nav_button-width: 1.75rem;
+  --rdp-weekday-padding: 0.2rem 0;
+  --rdp-weekday-opacity: 0.5;
+  --rdp-outside-opacity: 0.3;
+  --rdp-today-color: inherit;
+  font-family: var(--font-main);
+}
+
+.design-layout .rdp-flight-wrapper {
+  padding: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+.design-layout .rdp-flight-wrapper .rdp-month_caption {
+  padding-bottom: 6px;
+}
+
+.design-layout .rdp-flight-wrapper .rdp-caption_label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.design-layout .rdp-flight-wrapper .rdp-weekday {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.design-layout .rdp-flight-wrapper .rdp-day {
+  font-size: 12px;
+  color: var(--text-primary);
+  border-radius: 6px;
+}
+
+.design-layout .rdp-flight-wrapper .rdp-day_button {
+  font-size: 12px;
+  font-weight: 400;
+  transition: background 0.15s ease;
+}
+
+.design-layout .rdp-flight-wrapper .rdp-day_button:hover:not([disabled]) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.design-layout .rdp-flight-wrapper .rdp-chevron {
+  width: 14px;
+  height: 14px;
+  opacity: 0.5;
+}
+
+.design-layout .rdp-flight-wrapper .rdp-nav button:hover .rdp-chevron {
+  opacity: 0.9;
+}
+
+/* Selected day – soft yellow with border (single & range start/end) */
+.design-layout .rdp-flight-wrapper .rdp-day.rdp-selected .rdp-day_button,
+.design-layout .rdp-flight-wrapper .rdp-day.rdp-selected:not(.rdp-range_middle) {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  font-weight: 600;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1.5px #f59e0b;
+}
+
+/* Range middle – warm yellow between start and end */
+.design-layout .rdp-flight-wrapper .rdp-day.rdp-range_middle .rdp-day_button {
+  background: #fde68a;
+  color: #78350f;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Disable today highlight */
+.design-layout .rdp-flight-wrapper .rdp-day.rdp-today .rdp-day_button,
+.design-layout .rdp-flight-wrapper .rdp-day.rdp-today {
+  box-shadow: none;
+  font-weight: inherit;
+}
+
+/* Flight span: soft warm yellow */
+.design-layout .rdp-day.rdp-flight-day:not([data-disabled]):not(.rdp-selected),
+.design-layout .rdp-day.rdp-flight-day:not(.rdp-selected) .rdp-day_button:not([disabled]) {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Custom: dark dates → neutral grey */
+.design-layout .rdp-day.rdp-range-dark:not(.rdp-selected),
+.design-layout .rdp-day.rdp-range-dark:not(.rdp-selected) .rdp-day_button {
+  background: #e5e7eb !important;
+  color: #6b7280;
+}
+
+/* Custom: goal dates → warm amber */
+.design-layout .rdp-day.rdp-range-goal:not(.rdp-selected),
+.design-layout .rdp-day.rdp-range-goal:not(.rdp-selected) .rdp-day_button {
+  background: #fde68a !important;
+  color: #78350f;
+}
+
+/* Extra compact when many months (5+) */
+.design-layout .rdp-flight-wrapper.rdp-compact .rdp-root {
+  --rdp-day-height: 24px;
+  --rdp-day-width: 24px;
+  --rdp-day_button-height: 22px;
+  --rdp-day_button-width: 22px;
+  --rdp-months-gap: 0.75rem;
+}
+
+.design-layout .rdp-flight-wrapper.rdp-compact .rdp-caption_label {
+  font-size: 11px;
+}
+
+.design-layout .rdp-flight-wrapper.rdp-compact .rdp-weekday {
+  font-size: 9px;
+}
+
+.design-layout .rdp-flight-wrapper.rdp-compact .rdp-day,
+.design-layout .rdp-flight-wrapper.rdp-compact .rdp-day_button {
+  font-size: 10px;
+}
+
+/* Note indicator dot on calendar dates */
+.design-layout .rdp-day.rdp-has-note {
+  position: relative;
+}
+.design-layout .rdp-day.rdp-has-note::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
