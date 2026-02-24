@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import MonitorContent from "@/app/monitor/MonitorContent";
 
@@ -11,7 +13,15 @@ type Props = {
 };
 
 export default function ShareShell({ initialData }: Props) {
+  const router = useRouter();
   const [isDesktop, setIsDesktop] = useState(true);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.refresh();
+    router.push("/");
+  }
 
   useEffect(() => {
     const mq = window.matchMedia(`(min-width: ${MIN_DESKTOP_WIDTH}px)`);
@@ -62,6 +72,23 @@ export default function ShareShell({ initialData }: Props) {
         >
           This view is designed for desktop screens. Please open it on a device with a wider display.
         </p>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          style={{
+            marginTop: 24,
+            padding: "10px 18px",
+            fontSize: 14,
+            fontWeight: 500,
+            border: "1px solid var(--border-light)",
+            borderRadius: "var(--radius-md)",
+            background: "var(--bg-secondary)",
+            color: "var(--text-primary)",
+            cursor: "pointer",
+          }}
+        >
+          Sign out
+        </button>
       </div>
     );
   }
@@ -77,16 +104,49 @@ export default function ShareShell({ initialData }: Props) {
         background: "var(--bg-primary)",
       }}
     >
-      <MonitorContent
-        initialData={initialData}
-        ct={null}
-        dt={null}
-        campaignTables={[]}
-        dataTables={[]}
-        dimensionOptions={[]}
-        readOnly
-        forceGlobal
-      />
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 24px",
+          borderBottom: "1px solid var(--border-light)",
+          background: "var(--bg-secondary)",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>
+          Monitor — View only
+        </span>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          style={{
+            padding: "8px 14px",
+            fontSize: 13,
+            fontWeight: 500,
+            border: "1px solid var(--border-light)",
+            borderRadius: "var(--radius-md)",
+            background: "var(--bg-primary)",
+            color: "var(--text-primary)",
+            cursor: "pointer",
+          }}
+        >
+          Sign out
+        </button>
+      </header>
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <MonitorContent
+          initialData={initialData}
+          ct={null}
+          dt={null}
+          campaignTables={[]}
+          dataTables={[]}
+          dimensionOptions={[]}
+          readOnly
+          forceGlobal
+        />
+      </div>
     </div>
   );
 }
