@@ -125,6 +125,19 @@ export async function appendCampaignToTable(tableId: string, campaignId: number)
 
 export async function deleteTable(id: string): Promise<boolean> {
   if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
+  const { data: row } = await supabase
+    .from(TABLES_TABLE)
+    .select("dynamic_table_name")
+    .eq("id", id)
+    .single();
+  if (row?.dynamic_table_name) {
+    const { error: rpcError } = await supabase.rpc("drop_dynamic_table", {
+      p_table_name: row.dynamic_table_name,
+    });
+    if (rpcError) {
+      console.error("[deleteTable] drop_dynamic_table RPC error:", rpcError);
+    }
+  }
   const { error } = await supabase.from(TABLES_TABLE).delete().eq("id", id);
   if (error) return false;
   invalidateAppData(["/campaigns"], ["/data"]);

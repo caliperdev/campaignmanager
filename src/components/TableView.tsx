@@ -149,8 +149,17 @@ export function TableView({
 
   const handleDeleteTable = async () => {
     if (!window.confirm(`Delete table "${table.name}"? This cannot be undone.`)) return;
-    const ok = await deleteTable(table.id);
-    if (ok) router.push(basePath);
+    try {
+      const ok = await deleteTable(table.id);
+      if (ok) {
+        router.push(basePath);
+      } else {
+        window.alert("Failed to delete table. Please try again.");
+      }
+    } catch (err) {
+      console.error("Delete table error:", err);
+      window.alert("Failed to delete table. Please try again.");
+    }
   };
 
   return (
@@ -261,7 +270,11 @@ export function TableView({
                 </button>
                 <button
                   type="button"
-                  onClick={handleDeleteTable}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleDeleteTable();
+                  }}
                   aria-label="Delete table"
                   style={{
                     display: "inline-flex",

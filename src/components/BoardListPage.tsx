@@ -134,8 +134,17 @@ export function BoardListPage({
     e.preventDefault();
     e.stopPropagation();
     if (!window.confirm(`Delete "${t.name}"? This cannot be undone.`)) return;
-    const ok = await deleteTable(t.id);
-    if (ok) router.refresh();
+    try {
+      const ok = await deleteTable(t.id);
+      if (ok) {
+        router.refresh();
+      } else {
+        window.alert("Failed to delete table. Please try again.");
+      }
+    } catch (err) {
+      console.error("Delete table error:", err);
+      window.alert("Failed to delete table. Please try again.");
+    }
   };
 
   return (
