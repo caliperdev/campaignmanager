@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useReducer } from "react";
 import { addTable, updateTable, deleteTable } from "@/lib/table-actions";
 import type { Table, TableSection } from "@/lib/tables";
+import CsvImportButton from "@/components/CsvImportButton";
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -152,26 +153,29 @@ export function BoardListPage({
           {title}
         </h1>
         {!create.open && (
-          <button
-            type="button"
-            onClick={() => dispatchCreate({ type: "open" })}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 18px",
-              fontSize: 14,
-              fontWeight: 500,
-              color: "white",
-              background: "var(--accent-dark)",
-              border: "none",
-              borderRadius: "var(--radius-md)",
-              cursor: "pointer",
-            }}
-          >
-            <Icon><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></Icon>
-            Add table
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {section === "campaign" && <CsvImportButton />}
+            <button
+              type="button"
+              onClick={() => dispatchCreate({ type: "open" })}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 18px",
+                fontSize: 14,
+                fontWeight: 500,
+                color: "white",
+                background: "var(--accent-dark)",
+                border: "none",
+                borderRadius: "var(--radius-md)",
+                cursor: "pointer",
+              }}
+            >
+              <Icon><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></Icon>
+              Add table
+            </button>
+          </div>
         )}
       </div>
 

@@ -449,7 +449,7 @@ export function CampaignsView({ initialCampaigns, totalCount, tableId, tableName
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           {tableId && (returnToBase === "/data" ? <DataImportButton tableId={tableId} /> : <CsvImportButton tableId={tableId} />)}
           {!readOnly && <ExportCsvButton filteredCampaignIds={rowIds} />}
-          {tableId && <ResetAllButton tableId={tableId} />}
+          {tableId && <ResetAllButton tableId={tableId} returnToBase={returnToBase} />}
           {!readOnly && (
             <Link
               href={tableId ? `/campaign/new?tableId=${tableId}&returnTo=${encodeURIComponent(`${returnToBase}/${tableId}`)}` : "/campaign/new"}

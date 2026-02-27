@@ -23,6 +23,8 @@ export type Table = {
   subtitle?: string;
   columnHeaders?: string[];
   section: TableSection;
+  /** When set, table data comes from this Postgres table (CSV import). */
+  dynamicTableName?: string;
 };
 
 export type TableUpdate = Partial<Pick<Table, "name" | "subtitle" | "columnHeaders">>;
@@ -36,6 +38,7 @@ function rowToTable(row: {
   subtitle?: string | null;
   column_headers?: string[] | null;
   section?: string | null;
+  dynamic_table_name?: string | null;
 }): Table {
   const ch = row.column_headers;
   return {
@@ -44,13 +47,14 @@ function rowToTable(row: {
     subtitle: row.subtitle ?? undefined,
     columnHeaders: Array.isArray(ch) ? ch : undefined,
     section: (row.section as TableSection) ?? "campaign",
+    dynamicTableName: row.dynamic_table_name ?? undefined,
   };
 }
 
 async function getTablesUncached(userId: string | null, section?: TableSection): Promise<Table[]> {
   let q = supabase
     .from(TABLES_TABLE)
-    .select("id, name, subtitle, column_headers, section")
+    .select("id, name, subtitle, column_headers, section, dynamic_table_name")
     .order("created_at", { ascending: true });
   // Show campaign/data tables for any authenticated user (no user_id filter)
   if (section) q = q.eq("section", section);
@@ -70,7 +74,7 @@ export async function getTables(userId: string | null, section?: TableSection): 
 async function getTableUncached(tableId: string): Promise<Table | null> {
   const { data, error } = await supabase
     .from(TABLES_TABLE)
-    .select("id, name, subtitle, column_headers, section")
+    .select("id, name, subtitle, column_headers, section, dynamic_table_name")
     .eq("id", tableId)
     .single();
   if (error || !data) return null;
@@ -177,4 +181,24 @@ export async function getCampaignListForTableChunk(
   const byId = new Map(campaigns.map((c) => [c.id, c]));
   const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as Campaign[];
   return buildCampaignListItems(ordered);
+}
+
+/** Row from a dynamic (CSV-import) table: id + string columns. */
+export type DynamicTableRow = { id: number; [k: string]: unknown };
+
+/**
+ * Server-only. One request: chunk of rows + total count for a dynamic table (single round-trip).
+ */
+export async function getDynamicTableChunkWithCount(
+  dynamicTableName: string,
+  offset: number,
+  limit: number,
+): Promise<{ rows: DynamicTableRow[]; total: number }> {
+  const { data, error, count } = await supabase
+    .from(dynamicTableName)
+    .select("*", { count: "exact" })
+    .order("id", { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) return { rows: [], total: 0 };
+  return { rows: (data ?? []) as DynamicTableRow[], total: count ?? 0 };
 }

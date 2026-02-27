@@ -3,28 +3,23 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui";
-import {
-  importCsv,
-  previewCsv,
-  type ImportResult,
-  type CsvPreviewResult,
-  type CsvColumnMapping,
-} from "@/lib/csv-import";
-import { setTableColumnHeaders, appendCampaignIdsToTable } from "@/lib/table-actions";
+import { previewCsv, type CsvPreviewResult } from "@/lib/csv-import";
+import { createTableFromCsv, type CreateDynamicTableResult } from "@/lib/csv-dynamic-table";
 
 const TOAST_DURATION_MS = 10_000;
 
 interface CsvImportButtonProps {
-  tableId: string;
+  /** Optional; not used for the new create-table flow (creates independent table). */
+  tableId?: string;
 }
 
-export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
+export default function CsvImportButton({ tableId: _tableId }: CsvImportButtonProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importResult, setImportResult] = useState<CreateDynamicTableResult | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<CsvPreviewResult | null>(null);
-  const [columnMapping, setColumnMapping] = useState<CsvColumnMapping>({});
+  const [tableName, setTableName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -50,15 +45,7 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
       const previewResult = await previewCsv(fd);
       setPendingFile(file);
       setPreview(previewResult);
-      const headers = previewResult.headers;
-      const defaultId =
-        headers.find((h) => /id|insertion order id/i.test(h)) ?? headers[0] ?? "";
-      setColumnMapping({
-        id: defaultId,
-        startDate: headers[1] ?? "",
-        endDate: headers[2] ?? "",
-        impressionsGoal: headers[3] ?? "",
-      });
+      setTableName(file.name.replace(/\.csv$/i, "").trim() || "import");
       if (fileRef.current) fileRef.current.value = "";
     });
   }
@@ -66,7 +53,7 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
   function closePreview() {
     setPreview(null);
     setPendingFile(null);
-    setColumnMapping({});
+    setTableName("");
   }
 
   function handleConfirmImport() {
@@ -79,13 +66,12 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
 
     startTransition(async () => {
       try {
-        const res = await importCsv(fd, columnMapping);
+        const res = await createTableFromCsv(fd, tableName.trim() || pendingFile.name.replace(/\.csv$/i, ""));
         setImportResult(res);
-        if (res.insertedIds?.length) {
-          await appendCampaignIdsToTable(tableId, res.insertedIds);
-          if (res.headers?.length) await setTableColumnHeaders(tableId, res.headers);
+        if (res.success && res.tableId) {
+          router.refresh();
+          router.push(`/campaigns/${res.tableId}`);
         }
-        router.refresh();
       } finally {
         setIsImporting(false);
       }
@@ -93,8 +79,7 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
   }
 
   const showPreview = preview !== null && !isPending;
-  const hasDateColumns = Boolean(columnMapping.startDate && columnMapping.endDate);
-  const canImport = preview != null && preview.rowCount > 0 && hasDateColumns;
+  const canImport = preview != null && preview.headers.length > 0 && tableName.trim().length > 0;
 
   return (
     <>
@@ -181,7 +166,7 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
               }}
             >
               <h2 id="csv-preview-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>
-                Import preview
+                Import CSV as new table
               </h2>
               <button
                 type="button"
@@ -202,98 +187,34 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
 
             <div style={{ padding: "16px 20px", overflow: "auto", flex: 1 }}>
               <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)" }}>
-                First row = column names. <strong>{preview.rowCount}</strong> row{preview.rowCount !== 1 ? "s" : ""} will be imported as campaigns.
+                A new table will be created with the same columns and rows as the CSV. You can edit the table name below.
               </p>
 
-              {preview.headers.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
-                    Column mapping
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 24px", alignItems: "center" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>Start date</span>
-                      <select
-                        value={columnMapping.startDate ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, startDate: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>End date</span>
-                      <select
-                        value={columnMapping.endDate ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, endDate: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>ID</span>
-                      <select
-                        value={columnMapping.id ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, id: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>Impressions goal</span>
-                      <select
-                        value={columnMapping.impressionsGoal ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, impressionsGoal: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              )}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                  Table name
+                </label>
+                <input
+                  type="text"
+                  value={tableName}
+                  onChange={(e) => setTableName(e.target.value)}
+                  placeholder="Table name"
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 13,
+                    border: "1px solid var(--border-light)",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-primary)",
+                    width: "100%",
+                    maxWidth: 320,
+                  }}
+                />
+              </div>
+
+              <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)" }}>
+                <strong>{preview.headers.length}</strong> column{preview.headers.length !== 1 ? "s" : ""}, <strong>{preview.rowCount}</strong> row{preview.rowCount !== 1 ? "s" : ""}.
+              </p>
 
               {preview.headers.length > 0 ? (
                 <div>
@@ -320,40 +241,23 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: "var(--bg-secondary)" }}>
-                          {preview.headers.map((h) => {
-                            const role =
-                              columnMapping.startDate === h
-                                ? "Start date"
-                                : columnMapping.endDate === h
-                                  ? "End date"
-                                  : columnMapping.id === h
-                                    ? "ID"
-                                    : columnMapping.impressionsGoal === h
-                                      ? "Impressions goal"
-                                      : null;
-                            return (
-                              <th
-                                key={h}
-                                style={{
-                                  textAlign: "left",
-                                  padding: "8px 10px",
-                                  fontWeight: 600,
-                                  whiteSpace: "nowrap",
-                                  position: "sticky",
-                                  top: 0,
-                                  zIndex: 1,
-                                  background: "var(--bg-secondary)",
-                                }}
-                              >
-                                <div>{h}</div>
-                                {role && (
-                                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)", marginTop: 2 }}>
-                                    → {role}
-                                  </div>
-                                )}
-                              </th>
-                            );
-                          })}
+                          {preview.headers.map((h) => (
+                            <th
+                              key={h}
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 10px",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 1,
+                                background: "var(--bg-secondary)",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
@@ -372,9 +276,9 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
                 </div>
               ) : null}
 
-              {preview.rowCount === 0 && (
+              {preview.rowCount === 0 && preview.headers.length > 0 && (
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-tertiary)" }}>
-                  No data rows (only headers or empty file).
+                  No data rows (only headers). Table will be created with column headers only.
                 </p>
               )}
             </div>
@@ -397,14 +301,14 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
                 onClick={handleConfirmImport}
                 disabled={!canImport}
               >
-                Import {preview.rowCount} campaign{preview.rowCount !== 1 ? "s" : ""}
+                Create table
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {importResult && (
+      {importResult && !importResult.success && (
         <div
           role="status"
           aria-live="polite"
@@ -425,9 +329,7 @@ export default function CsvImportButton({ tableId }: CsvImportButtonProps) {
             animation: "design-layout-toast-in 0.25s var(--anim-ease)",
           }}
         >
-          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
-            Imported {importResult.inserted} campaign{importResult.inserted !== 1 ? "s" : ""}.
-          </span>
+          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>Import failed.</span>
           {importResult.errors.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {importResult.errors.map((err) => (

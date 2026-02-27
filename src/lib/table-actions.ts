@@ -2,10 +2,10 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { supabase } from "@/db";
-import { CAMPAIGNS_TABLE, DATA_ENTRIES_TABLE, TABLE_DATA_ENTRIES_TABLE } from "@/db/schema";
+import { DATA_ENTRIES_TABLE, TABLE_DATA_ENTRIES_TABLE } from "@/db/schema";
 import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 import type { Table, TableUpdate, TableSection } from "@/lib/tables";
-import { getCampaignListForTableChunk } from "@/lib/tables";
+import { getCampaignListForTableChunk, getDynamicTableChunkWithCount } from "@/lib/tables";
 import type { CampaignListItem } from "@/lib/campaign-grid";
 
 const TABLES_TABLE = "tables";
@@ -104,18 +104,6 @@ export async function setTableColumnHeaders(tableId: string, headers: string[]):
   return updateTable(tableId, { columnHeaders: headers });
 }
 
-async function setCampaignIdsForTable(tableId: string, ids: number[]): Promise<boolean> {
-  const { error: delError } = await supabase.from(TABLE_CAMPAIGNS_TABLE).delete().eq("table_id", tableId);
-  if (delError) return false;
-  if (ids.length > 0) {
-    const rows = ids.map((campaign_id, i) => ({ table_id: tableId, campaign_id, sort_order: i }));
-    const { error: insError } = await supabase.from(TABLE_CAMPAIGNS_TABLE).insert(rows);
-    if (insError) return false;
-  }
-  invalidateAppData(["/campaigns"], ["/data"]);
-  return true;
-}
-
 export async function appendCampaignToTable(tableId: string, campaignId: number): Promise<boolean> {
   if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
   const { data: existing } = await supabase
@@ -135,74 +123,10 @@ export async function appendCampaignToTable(tableId: string, campaignId: number)
   return true;
 }
 
-/** Append campaign ids to a table (e.g. after CSV import). */
-export async function appendCampaignIdsToTable(tableId: string, campaignIds: number[]): Promise<boolean> {
-  if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
-  const { data: rows } = await supabase
-    .from(TABLE_CAMPAIGNS_TABLE)
-    .select("campaign_id, sort_order")
-    .eq("table_id", tableId)
-    .order("sort_order", { ascending: true });
-  const existingIds = (rows ?? []).map((r) => r.campaign_id);
-  const merged = [...existingIds, ...campaignIds];
-  return setCampaignIdsForTable(tableId, merged);
-}
-
 export async function deleteTable(id: string): Promise<boolean> {
   if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
   const { error } = await supabase.from(TABLES_TABLE).delete().eq("id", id);
   if (error) return false;
-  invalidateAppData(["/campaigns"], ["/data"]);
-  return true;
-}
-
-/** Delete all rows in this table and clear column headers. Handles both campaign and data tables. */
-export async function resetTable(tableId: string): Promise<boolean> {
-  if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
-  const { data: tableMeta } = await supabase
-    .from(TABLES_TABLE)
-    .select("section")
-    .eq("id", tableId)
-    .single();
-  const section = (tableMeta?.section as TableSection) ?? "campaign";
-
-  if (section === "data") {
-    const { data: rows } = await supabase
-      .from(TABLE_DATA_ENTRIES_TABLE)
-      .select("data_entry_id")
-      .eq("table_id", tableId);
-    const entryIds = (rows ?? []).map((r) => r.data_entry_id);
-    if (entryIds.length > 0) {
-      const { error: delLinks } = await supabase
-        .from(TABLE_DATA_ENTRIES_TABLE)
-        .delete()
-        .eq("table_id", tableId);
-      if (delLinks) return false;
-      const { error: delEntries } = await supabase
-        .from(DATA_ENTRIES_TABLE)
-        .delete()
-        .in("id", entryIds);
-      if (delEntries) return false;
-    }
-  } else {
-    const { data: rows } = await supabase
-      .from(TABLE_CAMPAIGNS_TABLE)
-      .select("campaign_id")
-      .eq("table_id", tableId);
-    const campaignIds = (rows ?? []).map((r) => r.campaign_id);
-    if (campaignIds.length > 0) {
-      const { error: delCampaigns } = await supabase
-        .from(CAMPAIGNS_TABLE)
-        .delete()
-        .in("id", campaignIds);
-      if (delCampaigns) return false;
-    }
-    const okLinks = await setCampaignIdsForTable(tableId, []);
-    if (!okLinks) return false;
-  }
-
-  const okHeaders = await updateTable(tableId, { columnHeaders: [] });
-  if (!okHeaders) return false;
   invalidateAppData(["/campaigns"], ["/data"]);
   return true;
 }
@@ -214,4 +138,26 @@ export async function fetchCampaignListChunk(
   limit: number,
 ): Promise<CampaignListItem[]> {
   return getCampaignListForTableChunk(tableId, offset, limit);
+}
+
+/** Fetch a chunk of rows + total for a dynamic (CSV-import) table (for load more). */
+export async function fetchDynamicTableChunk(
+  dynamicTableName: string,
+  offset: number,
+  limit: number,
+) {
+  return getDynamicTableChunkWithCount(dynamicTableName, offset, limit);
+}
+
+/** Update one row in a dynamic (CSV-import) table. Payload keys must be DB column names (e.g. sanitized). */
+export async function updateDynamicTableRow(
+  dynamicTableName: string,
+  rowId: number,
+  payload: Record<string, string | number>,
+): Promise<boolean> {
+  if (await isReadOnlyMonitorUser()) return false;
+  const { error } = await supabase.from(dynamicTableName).update(payload).eq("id", rowId);
+  if (error) return false;
+  invalidateAppData(["/campaigns"], ["/data"]);
+  return true;
 }
