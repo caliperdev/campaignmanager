@@ -306,14 +306,13 @@ export function TableView({
                     <th
                       key={col}
                       style={{
-                        position: "relative",
+                        position: "sticky",
                         textAlign: "left",
                         padding: "8px 10px",
                         fontWeight: 600,
                         whiteSpace: "nowrap",
-                        overflow: "hidden",
+                        overflow: "visible",
                         textOverflow: "ellipsis",
-                        position: "sticky",
                         top: 0,
                         zIndex: 1,
                         background: "var(--bg-secondary)",
@@ -321,7 +320,6 @@ export function TableView({
                         width: getColWidth(col),
                         minWidth: MIN_COL_WIDTH,
                         boxSizing: "border-box",
-                        overflow: "visible",
                       }}
                     >
                       <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis" }}>{col}</span>
