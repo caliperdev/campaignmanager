@@ -49,10 +49,12 @@ export function Sidebar({
   isMobile = false,
   campaigns = EMPTY_ITEMS,
   sources = EMPTY_ITEMS,
+  readOnlyUser = false,
 }: {
   isMobile?: boolean;
   campaigns?: (Campaign | Source)[];
   sources?: (Campaign | Source)[];
+  readOnlyUser?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -264,51 +266,55 @@ export function Sidebar({
         </div>
 
         <div style={{ marginBottom: "24px" }}>
-          {/* HOME */}
-          <Link
-            href="/home"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "8px 12px",
-              color: isHomePage ? "var(--accent-dark)" : "var(--text-secondary)",
-              textDecoration: "none",
-              borderRadius: "var(--radius-md)",
-              transition: "color 0.2s var(--anim-ease), background 0.2s var(--anim-ease), font-weight 0.2s var(--anim-ease)",
-              marginBottom: "2px",
-              fontWeight: isHomePage ? 600 : 500,
-              background: isHomePage ? "#E8EBEB" : "transparent",
-            }}
-          >
-            <span style={{ marginRight: "12px" }}>
-              <Icon><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></Icon>
-            </span>
-            Home
-          </Link>
-
-          {/* CAMPAIGNS section */}
-          {renderSection(
-            "campaigns",
-            "Campaigns",
-            "/campaigns",
-            isCampaignsList,
-            campaigns,
-            "/campaigns",
-            "No campaigns",
-            <Icon><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" /></Icon>,
+          {/* HOME - hidden for read-only users (monitor-only) */}
+          {!readOnlyUser && (
+            <Link
+              href="/home"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "8px 12px",
+                color: isHomePage ? "var(--accent-dark)" : "var(--text-secondary)",
+                textDecoration: "none",
+                borderRadius: "var(--radius-md)",
+                transition: "color 0.2s var(--anim-ease), background 0.2s var(--anim-ease), font-weight 0.2s var(--anim-ease)",
+                marginBottom: "2px",
+                fontWeight: isHomePage ? 600 : 500,
+                background: isHomePage ? "#E8EBEB" : "transparent",
+              }}
+            >
+              <span style={{ marginRight: "12px" }}>
+                <Icon><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></Icon>
+              </span>
+              Home
+            </Link>
           )}
 
-          {/* SOURCES section */}
-          {renderSection(
-            "sources",
-            "Sources",
-            "/sources",
-            isSourcesList,
-            sources,
-            "/sources",
-            "No sources",
-            <Icon><path d="M20 6H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H4V8h16v8zM6 12h2v2H6v-2zm3-2h2v2H9v-2zm3 0h2v2h-2v-2zm3 0h2v2h-2v-2z" /></Icon>,
-          )}
+          {/* CAMPAIGNS section - hidden for read-only users */}
+          {!readOnlyUser &&
+            renderSection(
+              "campaigns",
+              "Campaigns",
+              "/campaigns",
+              isCampaignsList,
+              campaigns,
+              "/campaigns",
+              "No campaigns",
+              <Icon><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" /></Icon>,
+            )}
+
+          {/* SOURCES section - hidden for read-only users */}
+          {!readOnlyUser &&
+            renderSection(
+              "sources",
+              "Sources",
+              "/sources",
+              isSourcesList,
+              sources,
+              "/sources",
+              "No sources",
+              <Icon><path d="M20 6H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H4V8h16v8zM6 12h2v2H6v-2zm3-2h2v2H9v-2zm3 0h2v2h-2v-2zm3 0h2v2h-2v-2z" /></Icon>,
+            )}
 
           {/* MONITOR */}
           <Link
@@ -350,34 +356,36 @@ export function Sidebar({
             </div>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!window.confirm("Refresh app data? This will refetch all tables.")) return;
-                if (!window.confirm("Really refresh? All data will be reloaded.")) return;
-                await refreshAppCache();
-                router.refresh();
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flex: 1,
-                padding: "8px 12px",
-                border: "none",
-                background: "transparent",
-                color: "var(--text-secondary)",
-                fontSize: 14,
-                cursor: "pointer",
-                borderRadius: "var(--radius-md)",
-                textAlign: "left",
-              }}
-              title="Refresh app data"
-            >
-              <Icon>
-                <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
-              </Icon>
-              <span style={{ marginLeft: 6 }}>Refresh</span>
-            </button>
+            {!readOnlyUser && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!window.confirm("Refresh app data? This will refetch all tables.")) return;
+                  if (!window.confirm("Really refresh? All data will be reloaded.")) return;
+                  await refreshAppCache();
+                  router.refresh();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flex: 1,
+                  padding: "8px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  fontSize: 14,
+                  cursor: "pointer",
+                  borderRadius: "var(--radius-md)",
+                  textAlign: "left",
+                }}
+                title="Refresh app data"
+              >
+                <Icon>
+                  <path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+                </Icon>
+                <span style={{ marginLeft: 6 }}>Refresh</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={async () => {

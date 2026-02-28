@@ -27,10 +27,12 @@ export function AuthLayout({
   children,
   campaigns = EMPTY_CAMPAIGNS,
   sources = EMPTY_SOURCES,
+  readOnlyUser = false,
 }: {
   children: React.ReactNode;
   campaigns?: Campaign[];
   sources?: Source[];
+  readOnlyUser?: boolean;
 }) {
   const pathname = usePathname();
   const isMobile = useIsMobile();
@@ -52,7 +54,7 @@ export function AuthLayout({
   return (
     <div className="app-container">
       <div className="sidebar-desktop-only" style={{ display: "flex", flexShrink: 0 }}>
-        <Sidebar isMobile={false} campaigns={campaigns} sources={sources} />
+        <Sidebar isMobile={false} campaigns={campaigns} sources={sources} readOnlyUser={readOnlyUser} />
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {isMobile && (
@@ -138,7 +140,7 @@ export function AuthLayout({
                   </svg>
                 </button>
               </div>
-              <Sidebar isMobile={true} campaigns={campaigns} sources={sources} />
+              <Sidebar isMobile={true} campaigns={campaigns} sources={sources} readOnlyUser={readOnlyUser} />
             </div>
           </>
         )}

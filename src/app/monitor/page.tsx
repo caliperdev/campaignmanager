@@ -3,7 +3,7 @@ import { toMonitorDisplayRows, type MonitorDataPayload } from "@/lib/monitor-dat
 import { getCampaigns, getSources } from "@/lib/tables";
 import { getOrComputeMonitorData } from "@/lib/monitor-cache";
 import MonitorContent from "./MonitorContent";
-import { enforceNotReadOnly } from "@/lib/read-only-guard";
+import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Monitor",
@@ -15,7 +15,7 @@ export default async function MonitorPage({
 }: {
   searchParams: Promise<{ ct?: string; dt?: string }>;
 }) {
-  await enforceNotReadOnly();
+  const readOnly = await isReadOnlyMonitorUser();
 
   const params = await searchParams;
   const ct = params?.ct ?? null;
@@ -34,6 +34,7 @@ export default async function MonitorPage({
       dt={dt}
       campaignTables={campaigns.map((c) => ({ id: c.id, name: c.name }))}
       dataTables={sources.map((s) => ({ id: s.id, name: s.name }))}
+      readOnly={readOnly}
     />
   );
 }

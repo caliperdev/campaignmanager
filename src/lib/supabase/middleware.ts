@@ -35,18 +35,25 @@ export async function updateSession(request: NextRequest) {
   }
   if (user && isPublic) {
     const url = request.nextUrl.clone();
-    const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
     const userEmail = (user.email ?? "").trim().toLowerCase();
-    url.pathname = configEmail && userEmail === configEmail ? "/share" : "/home";
+    const fullAccess = new Set(
+      (process.env.FULL_ACCESS_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+    );
+    const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
+    const isReadOnlyUser = !fullAccess.has(userEmail) && !!configEmail && userEmail === configEmail;
+    url.pathname = isReadOnlyUser ? "/monitor" : "/home";
     return NextResponse.redirect(url);
   }
 
-  const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
   const userEmail = (user?.email ?? "").trim().toLowerCase();
-  const isReadOnlyUser = !!configEmail && userEmail === configEmail;
-  if (isReadOnlyUser && !isPublic && !isShare) {
+  const fullAccess = new Set(
+    (process.env.FULL_ACCESS_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+  );
+  const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
+  const isReadOnlyUser = !fullAccess.has(userEmail) && !!configEmail && userEmail === configEmail;
+  if (isReadOnlyUser && !isPublic && !isShare && path !== "/monitor") {
     const url = request.nextUrl.clone();
-    url.pathname = "/share";
+    url.pathname = "/monitor";
     return NextResponse.redirect(url);
   }
 

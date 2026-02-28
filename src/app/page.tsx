@@ -1,13 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Landing } from "@/components/Landing";
-
-const READ_ONLY_EMAIL_KEY = "READ_ONLY_MONITOR_EMAIL";
-
-function isReadOnlyViewUser(email: string | null): boolean {
-  const config = (process.env[READ_ONLY_EMAIL_KEY] ?? "").trim().toLowerCase();
-  return !!config && !!email && email.trim().toLowerCase() === config;
-}
+import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Campaign Manager",
@@ -19,7 +13,7 @@ export default async function Home() {
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      redirect(isReadOnlyViewUser(user.email ?? null) ? "/share" : "/home");
+      redirect((await isReadOnlyMonitorUser()) ? "/monitor" : "/home");
     }
   }
   return <Landing />;
