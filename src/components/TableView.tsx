@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { updateCampaign, deleteCampaign, fetchDynamicTableChunk, updateDynamicTableRow } from "@/lib/table-actions";
+import { updateCampaign, deleteCampaign, updateSource, deleteSource, fetchDynamicTableChunk, updateDynamicTableRow } from "@/lib/table-actions";
 import type { Campaign, Source } from "@/db/schema";
 import type { DynamicTableRow } from "@/lib/tables";
 import { sanitizeDynamicColumnKey } from "@/lib/dynamic-table-keys";
@@ -123,7 +123,10 @@ export function TableView({
   const sectionLabel = basePath === "/sources" ? "Sources" : "Campaigns";
 
   const saveEditName = async () => {
-    const ok = await updateCampaign(item.id, { name: editName.trim() || "Untitled" });
+    const ok =
+      basePath === "/sources"
+        ? await updateSource(item.id, { name: editName.trim() || "Source" })
+        : await updateCampaign(item.id, { name: editName.trim() || "Untitled" });
     if (ok) {
       router.refresh();
       setEditingName(false);
@@ -133,7 +136,7 @@ export function TableView({
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
     try {
-      const ok = await deleteCampaign(item.id);
+      const ok = basePath === "/sources" ? await deleteSource(item.id) : await deleteCampaign(item.id);
       if (ok) router.push(basePath);
       else window.alert("Failed to delete. Please try again.");
     } catch (err) {
@@ -346,7 +349,7 @@ export function TableView({
             </div>
           </div>
         )}
-        {dynamicRows.length < dynamicTotalState && (
+        {item.dynamicTableName && dynamicRows.length < dynamicTotalState && (
           <div style={{ marginTop: 16 }}>
             <button
               type="button"

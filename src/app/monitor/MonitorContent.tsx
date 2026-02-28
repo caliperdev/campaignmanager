@@ -274,14 +274,14 @@ export default function MonitorContent({
             Monitor
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 8, maxWidth: 520 }}>
-            Sum of daily impressions by time or by campaign dimension. Select campaign and source tables, then choose how to group.
+            Left join campaign (Supabase) with source (Dataverse or CSV). Select campaign table and source to view booked impressions, delivered impressions, costs, and margin by month.
           </p>
           {forceGlobal ? (
             <p style={{ fontSize: 13, color: "var(--text-tertiary)", marginTop: 16 }}>
               Viewing all campaign and source tables.
             </p>
           ) : (
-            <div style={{ marginTop: 16 }}>
+            <div style={{ marginTop: 16, display: "flex", gap: 24, alignItems: "flex-end", flexWrap: "wrap" }}>
               <MonitorPickers
                 campaignTables={campaignTables.map((t) => ({ id: t.id, name: t.name }))}
                 dataTables={dataTables.map((t) => ({ id: t.id, name: t.name }))}
@@ -294,7 +294,7 @@ export default function MonitorContent({
         {!readOnly && (
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
           <RefreshCampaignButton onRefreshCached={refreshFromCache} />
-          <RefreshMonitorButton dataTableId={dt ?? undefined} />
+          <RefreshMonitorButton campaignId={ct ?? undefined} sourceId={dt ?? undefined} onRefreshCached={refreshFromCache} />
         </div>
         )}
       </div>
@@ -519,7 +519,9 @@ export default function MonitorContent({
                     {aggregatedRows.length === 0 ? (
                       <tr>
                         <td colSpan={visibleColumns.length + 1} style={{ ...tdBase, color: "var(--text-secondary)", textAlign: "center" }}>
-                          No data. Add campaigns or use Sources import to see impressions by month.
+                          {ct && dt
+                            ? "No data. Ensure campaign and source have matching Insertion Order ID / GID columns, then Refresh."
+                            : "No data. Add campaigns or use Sources import to see impressions by month."}
                         </td>
                       </tr>
                     ) : (

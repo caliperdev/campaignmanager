@@ -1,6 +1,7 @@
 import { getMonitorRows } from "@/lib/data-query";
 import { toMonitorDisplayRows, type MonitorDataPayload } from "@/lib/monitor-data";
 import { getCampaigns, getSources } from "@/lib/tables";
+import { getOrComputeMonitorData } from "@/lib/monitor-cache";
 import MonitorContent from "./MonitorContent";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
@@ -9,15 +10,36 @@ export const metadata = {
   description: "Monitor and analytics",
 };
 
-export default async function MonitorPage() {
+export default async function MonitorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ct?: string; dt?: string }>;
+}) {
   await enforceNotReadOnly();
 
-  const [monitorRows, campaigns, sources] = await Promise.all([
-    getMonitorRows(),
+  const params = await searchParams;
+  const ct = params?.ct ?? null;
+  const dt = params?.dt ?? null;
+
+  const [campaigns, sources, initialData] = await Promise.all([
     getCampaigns(),
     getSources(),
+    ct && dt ? getOrComputeMonitorData(ct, dt) : getGlobalMonitorData(),
   ]);
 
+  return (
+    <MonitorContent
+      initialData={initialData}
+      ct={ct}
+      dt={dt}
+      campaignTables={campaigns.map((c) => ({ id: c.id, name: c.name }))}
+      dataTables={sources.map((s) => ({ id: s.id, name: s.name }))}
+    />
+  );
+}
+
+async function getGlobalMonitorData(): Promise<MonitorDataPayload> {
+  const monitorRows = await getMonitorRows();
   const rows = toMonitorDisplayRows(monitorRows);
   const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
   const totalDataImpressions = rows.reduce((acc, r) => acc + r.dataImpressions, 0);
@@ -28,7 +50,7 @@ export default async function MonitorPage() {
   const totalTotalCost = Math.round(rows.reduce((acc, r) => acc + r.totalCost, 0) * 100) / 100;
   const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
 
-  const initialData: MonitorDataPayload = {
+  return {
     campaignRows: [],
     totalUniqueCampaignCount: 0,
     dataRows: [],
@@ -42,12 +64,4 @@ export default async function MonitorPage() {
     totalTotalCost,
     totalBookedRevenue,
   };
-
-  return (
-    <MonitorContent
-      initialData={initialData}
-      campaignTables={campaigns.map((c) => ({ id: c.id, name: c.name }))}
-      dataTables={sources.map((s) => ({ id: s.id, name: s.name }))}
-    />
-  );
 }

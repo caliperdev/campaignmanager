@@ -37,7 +37,9 @@ function rowToCampaign(row: {
 function rowToSource(row: {
   id: string;
   name: string;
-  dynamic_table_name: string;
+  dynamic_table_name?: string | null;
+  entity_set_name?: string | null;
+  logical_name?: string | null;
   column_headers?: string[] | null;
   created_at: string;
 }): Source {
@@ -45,7 +47,9 @@ function rowToSource(row: {
   return {
     id: row.id,
     name: row.name ?? "",
-    dynamicTableName: row.dynamic_table_name ?? "",
+    dynamicTableName: row.dynamic_table_name ?? undefined,
+    entitySetName: row.entity_set_name ?? undefined,
+    logicalName: row.logical_name ?? undefined,
     columnHeaders: Array.isArray(ch) ? ch : undefined,
     createdAt: row.created_at,
   };
@@ -81,7 +85,7 @@ export async function getSources(): Promise<Source[]> {
   return cached(async () => {
     const { data, error } = await supabase
       .from(SOURCES_TABLE)
-      .select("id, name, dynamic_table_name, column_headers, created_at")
+      .select("id, name, dynamic_table_name, entity_set_name, logical_name, column_headers, created_at")
       .order("created_at", { ascending: true });
     if (error) return [];
     return (data ?? []).map(rowToSource);
@@ -93,7 +97,7 @@ export async function getSource(id: string): Promise<Source | null> {
   return cached(async () => {
     const { data, error } = await supabase
       .from(SOURCES_TABLE)
-      .select("id, name, dynamic_table_name, column_headers, created_at")
+      .select("id, name, dynamic_table_name, entity_set_name, logical_name, column_headers, created_at")
       .eq("id", id)
       .single();
     if (error || !data) return null;

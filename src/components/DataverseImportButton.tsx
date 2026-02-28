@@ -26,6 +26,7 @@ export default function DataverseImportButton() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [tables, setTables] = useState<DataverseTableInfo[]>([]);
+  const [tablesError, setTablesError] = useState<string | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
   const [selected, setSelected] = useState<DataverseTableInfo | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -51,10 +52,17 @@ export default function DataverseImportButton() {
     setSearch("");
     setLoadingTables(true);
     setTables([]);
+    setTablesError(null);
     startTransition(async () => {
       try {
-        const list = await listDataverseTables();
-        setTables(list);
+        const result = await listDataverseTables();
+        if ("error" in result) {
+          setTablesError(result.error);
+          setTables([]);
+        } else {
+          setTables(result.tables);
+          setTablesError(null);
+        }
       } finally {
         setLoadingTables(false);
       }
@@ -66,6 +74,7 @@ export default function DataverseImportButton() {
     setSelected(null);
     setDisplayName("");
     setTables([]);
+    setTablesError(null);
   }
 
   function selectTable(table: DataverseTableInfo) {
@@ -185,6 +194,20 @@ export default function DataverseImportButton() {
                 <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 24 }}>
                   <span className="btn-loader" style={{ width: 24, height: 24 }} aria-hidden />
                   <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Loading tables…</span>
+                </div>
+              ) : tablesError ? (
+                <div
+                  style={{
+                    padding: 16,
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-light)",
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: 13, color: "#b22822", fontWeight: 500 }}>Could not load Dataverse tables</p>
+                  <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                    {tablesError}
+                  </p>
                 </div>
               ) : (
                 <>

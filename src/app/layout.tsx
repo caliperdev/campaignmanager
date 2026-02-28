@@ -10,6 +10,9 @@ import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 const EMPTY_CAMPAIGNS: Campaign[] = [];
 const EMPTY_SOURCES: Source[] = [];
 
+/** Layout uses cookies (auth), so it must be dynamic. */
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Campaign Manager",
   description: "Campaign manager — campaigns, data, resizable columns, font size, filters, sorting",
@@ -20,12 +23,21 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient();
-  const userId = supabase ? (await supabase.auth.getUser()).data.user?.id ?? null : null;
-  const readOnlyUser = await isReadOnlyMonitorUser();
-  const { campaigns, sources } = readOnlyUser
-    ? { campaigns: EMPTY_CAMPAIGNS, sources: EMPTY_SOURCES }
-    : await getSidebarData();
+  let campaigns = EMPTY_CAMPAIGNS;
+  let sources = EMPTY_SOURCES;
+  let readOnlyUser = false;
+
+  try {
+    const supabase = await createClient();
+    readOnlyUser = await isReadOnlyMonitorUser();
+    if (!readOnlyUser) {
+      const data = await getSidebarData();
+      campaigns = data.campaigns;
+      sources = data.sources;
+    }
+  } catch (err) {
+    console.error("[RootLayout] Failed to load auth/sidebar:", err);
+  }
 
   return (
     <html lang="en">

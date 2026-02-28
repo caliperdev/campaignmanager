@@ -8,11 +8,13 @@ export interface Campaign {
   updatedAt: string;
 }
 
-/** Source registry: sources pipeline (read-only). */
+/** Source registry: sources pipeline (read-only). CSV sources have dynamicTableName; Dataverse sources have entitySetName + logicalName. */
 export interface Source {
   id: string;
   name: string;
-  dynamicTableName: string;
+  dynamicTableName?: string;
+  entitySetName?: string;
+  logicalName?: string;
   columnHeaders?: string[];
   createdAt: string;
 }

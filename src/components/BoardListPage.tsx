@@ -74,7 +74,7 @@ export function BoardListPage({
     }
   };
 
-  const canEditDelete = true;
+  const canEditDelete = section === "campaign";
 
   return (
     <main

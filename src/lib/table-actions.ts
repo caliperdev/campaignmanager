@@ -67,7 +67,7 @@ export async function deleteSource(id: string): Promise<boolean> {
     .select("dynamic_table_name")
     .eq("id", id)
     .single();
-  if (row?.dynamic_table_name) {
+  if (row?.dynamic_table_name != null && row.dynamic_table_name !== "") {
     const { error: rpcError } = await supabase.rpc("drop_dynamic_table", {
       p_table_name: row.dynamic_table_name,
     });

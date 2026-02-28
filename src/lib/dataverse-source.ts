@@ -6,11 +6,15 @@ import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 import {
   isDataverseConfigured,
   getDataverseTables,
-  getDataverseTableData,
-  type DataverseTableInfo,
+  getDataverseTableChunk,
+  getDataverseTableFull,
 } from "@/lib/dataverse-client";
 
-export type { DataverseTableInfo };
+export interface DataverseTableInfo {
+  logicalName: string;
+  displayName: string;
+  entitySetName: string;
+}
 
 const APP_DATA_TAG = "app-data";
 
@@ -25,18 +29,31 @@ export async function checkDataverseEnabled(): Promise<boolean> {
   return isDataverseConfigured();
 }
 
-/** List tables available in the configured Dataverse environment. */
-export async function listDataverseTables(): Promise<DataverseTableInfo[]> {
-  if (!isDataverseConfigured()) return [];
+/** List tables available in the configured Dataverse environment. Returns tables or an error message for the UI. */
+export async function listDataverseTables(): Promise<
+  { tables: DataverseTableInfo[] } | { error: string }
+> {
+  if (!isDataverseConfigured()) return { tables: [] };
   try {
-    return await getDataverseTables();
+    const tables = await getDataverseTables();
+    return { tables };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     console.error("[dataverse-source] listDataverseTables failed:", err);
-    return [];
+    if (message.includes("403") && message.includes("0x80072560")) {
+      return {
+        error:
+          "The application is not a member of the Dataverse organization. In Power Platform / Dynamics 365, add an Application user with this app’s Client ID and assign a security role (e.g. System Administrator).",
+      };
+    }
+    if (message.includes("403")) {
+      return { error: "Access denied to Dataverse. Check that the app has a user and role in the environment." };
+    }
+    return { error: message };
   }
 }
 
-/** Import a Dataverse table as a new source. Uses existing create_source_csv_import_table RPC. */
+/** Register a Dataverse table as a source (view-only). No Supabase table is created; data is read from Dataverse when viewing. */
 export async function importDataverseAsSource(
   logicalName: string,
   entitySetName: string,
@@ -48,29 +65,25 @@ export async function importDataverseAsSource(
   }
 
   try {
-    const { columns, rows } = await getDataverseTableData(entitySetName, logicalName);
-    if (!columns.length) {
-      return { success: false, errors: ["Table has no readable columns."] };
-    }
-
-    const nameForTable = (displayName || logicalName).trim() || "dataverse";
-    const pTableName = nameForTable.replace(/[^a-z0-9_]/gi, "_").toLowerCase() || "dataverse";
-
-    const { data: rpcData, error } = await supabase.rpc("create_source_csv_import_table", {
-      p_table_name: pTableName,
-      p_columns: columns,
-      p_rows: rows,
-      p_display_name: displayName.trim() || logicalName,
-    });
+    const name = (displayName || logicalName).trim() || "Dataverse table";
+    const { data, error } = await supabase
+      .from("sources")
+      .insert({
+        name,
+        entity_set_name: entitySetName,
+        logical_name: logicalName,
+        dynamic_table_name: null,
+        column_headers: null,
+      })
+      .select("id")
+      .single();
 
     if (error) {
-      console.error("[dataverse-source] RPC failed:", error);
+      console.error("[dataverse-source] insert failed:", error);
       return { success: false, errors: [error.message] };
     }
-
-    const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-    if (!row?.source_id) {
-      return { success: false, errors: ["Import did not return a source id."] };
+    if (!data?.id) {
+      return { success: false, errors: ["Insert did not return source id."] };
     }
 
     revalidateTag(APP_DATA_TAG, "max");
@@ -78,7 +91,7 @@ export async function importDataverseAsSource(
 
     return {
       success: true,
-      sourceId: row.source_id as string,
+      sourceId: data.id as string,
       errors: [],
     };
   } catch (err) {
@@ -86,4 +99,22 @@ export async function importDataverseAsSource(
     console.error("[dataverse-source] importDataverseAsSource failed:", err);
     return { success: false, errors: [message] };
   }
+}
+
+/** Server-only. Fetch one chunk of a Dataverse table for viewing (used by source detail page). */
+export async function fetchDataverseTableChunk(
+  entitySetName: string,
+  logicalName: string,
+  offset: number,
+  limit: number
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
+  return getDataverseTableChunk(entitySetName, logicalName, offset, limit);
+}
+
+/** Server-only. Fetch entire Dataverse table (all columns, all rows) for view-only source page. */
+export async function fetchDataverseTableFull(
+  entitySetName: string,
+  logicalName: string
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
+  return getDataverseTableFull(entitySetName, logicalName);
 }

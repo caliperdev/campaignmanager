@@ -11,18 +11,43 @@ type RefreshState =
   | { phase: "done"; message: string }
   | { phase: "error"; message: string };
 
-type Props = { dataTableId?: string };
+type Props = {
+  campaignId?: string;
+  sourceId?: string;
+  onRefreshCached?: () => Promise<void>;
+};
 
-export default function RefreshMonitorButton({ dataTableId }: Props) {
+export default function RefreshMonitorButton({ campaignId, sourceId, onRefreshCached }: Props) {
   const router = useRouter();
   const [state, setState] = useState<RefreshState>({ phase: "idle" });
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     if (state.phase === "running") return;
-    setState({ phase: "running", message: "Starting…", percent: 0 });
 
-    const url = dataTableId
-      ? `/api/monitor-refresh?dt=${encodeURIComponent(dataTableId)}`
+    if (campaignId && sourceId && onRefreshCached) {
+      setState({ phase: "running", message: "Re-computing from campaign + source…", percent: 0 });
+      try {
+        const res = await fetch(
+          `/api/monitor-refresh-cache?ct=${encodeURIComponent(campaignId)}&dt=${encodeURIComponent(sourceId)}`,
+          { method: "POST" }
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error ?? `HTTP ${res.status}`);
+        }
+        setState({ phase: "done", message: "Cache refreshed." });
+        await onRefreshCached();
+        router.refresh();
+      } catch (err) {
+        setState({ phase: "error", message: err instanceof Error ? err.message : "Refresh failed." });
+      }
+      setTimeout(() => setState({ phase: "idle" }), 4000);
+      return;
+    }
+
+    setState({ phase: "running", message: "Starting…", percent: 0 });
+    const url = sourceId
+      ? `/api/monitor-refresh?dt=${encodeURIComponent(sourceId)}`
       : "/api/monitor-refresh";
     const evtSource = new EventSource(url);
 
@@ -70,7 +95,7 @@ export default function RefreshMonitorButton({ dataTableId }: Props) {
         return prev;
       });
     };
-  }, [router, dataTableId]);
+  }, [router, campaignId, sourceId, onRefreshCached]);
 
   const isRunning = state.phase === "running";
   const showBar = state.phase === "running" || state.phase === "done" || state.phase === "error";
