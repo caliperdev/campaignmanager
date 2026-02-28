@@ -9,7 +9,7 @@ import ImpressionsChart, { type ChartMeasureGroup } from "./ImpressionsChart";
 import MonitorPickers from "./MonitorPickers";
 import RefreshCampaignButton from "./RefreshCampaignButton";
 import RefreshMonitorButton from "./RefreshMonitorButton";
-import type { Table } from "@/lib/tables";
+type NavItem = { id: string; name: string };
 
 const tableBorderRadius = "var(--radius-md)";
 const cellPadding = "10px 12px";
@@ -77,10 +77,10 @@ type MonitorByDimensionRow = {
 
 type Props = {
   initialData: MonitorDataPayload;
-  ct: string | null;
-  dt: string | null;
-  campaignTables: Table[];
-  dataTables: Table[];
+  ct?: string | null;
+  dt?: string | null;
+  campaignTables: NavItem[];
+  dataTables: NavItem[];
   dimensionOptions?: string[];
   readOnly?: boolean;
   forceGlobal?: boolean;
@@ -88,8 +88,8 @@ type Props = {
 
 export default function MonitorContent({
   initialData,
-  ct,
-  dt,
+  ct = null,
+  dt = null,
   campaignTables,
   dataTables,
   dimensionOptions = [],
@@ -274,11 +274,11 @@ export default function MonitorContent({
             Monitor
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 8, maxWidth: 520 }}>
-            Sum of daily impressions by time or by campaign dimension. Select campaign and data tables, then choose how to group.
+            Sum of daily impressions by time or by campaign dimension. Select campaign and source tables, then choose how to group.
           </p>
           {forceGlobal ? (
             <p style={{ fontSize: 13, color: "var(--text-tertiary)", marginTop: 16 }}>
-              Viewing all campaign and data tables.
+              Viewing all campaign and source tables.
             </p>
           ) : (
             <div style={{ marginTop: 16 }}>
@@ -519,7 +519,7 @@ export default function MonitorContent({
                     {aggregatedRows.length === 0 ? (
                       <tr>
                         <td colSpan={visibleColumns.length + 1} style={{ ...tdBase, color: "var(--text-secondary)", textAlign: "center" }}>
-                          No data. Add campaigns or use Data import to see impressions by month.
+                          No data. Add campaigns or use Sources import to see impressions by month.
                         </td>
                       </tr>
                     ) : (

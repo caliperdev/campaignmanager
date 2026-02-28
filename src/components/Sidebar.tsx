@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Table } from "@/lib/tables";
+import type { Campaign, Source } from "@/db/schema";
 import { createClient } from "@/lib/supabase/client";
 import { refreshAppCache } from "@/lib/table-actions";
 
@@ -11,7 +11,8 @@ const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 480;
 const SIDEBAR_DEFAULT = 260;
 const RESIZE_HANDLE_WIDTH = 6;
-const EMPTY_TABLES: Table[] = [];
+type NavItem = { id: string; name: string };
+const EMPTY_ITEMS: (Campaign | Source)[] = [];
 const EMPTY_STYLE: React.CSSProperties = {};
 
 function Icon({ children, style = EMPTY_STYLE }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -46,19 +47,19 @@ function Chevron({ open }: { open: boolean }) {
 
 export function Sidebar({
   isMobile = false,
-  tablesCampaigns = EMPTY_TABLES,
-  tablesData = EMPTY_TABLES,
+  campaigns = EMPTY_ITEMS,
+  sources = EMPTY_ITEMS,
 }: {
   isMobile?: boolean;
-  tablesCampaigns?: Table[];
-  tablesData?: Table[];
+  campaigns?: (Campaign | Source)[];
+  sources?: (Campaign | Source)[];
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
     const s = new Set<string>();
     if (pathname.startsWith("/campaigns")) s.add("campaigns");
-    if (pathname.startsWith("/data")) s.add("data");
+    if (pathname.startsWith("/sources")) s.add("sources");
     return s;
   });
   const [width, setWidth] = useState(SIDEBAR_DEFAULT);
@@ -109,7 +110,7 @@ export function Sidebar({
     setExpandedSections((prev) => {
       const next = new Set(prev);
       if (pathname.startsWith("/campaigns")) next.add("campaigns");
-      if (pathname.startsWith("/data")) next.add("data");
+      if (pathname.startsWith("/sources")) next.add("sources");
       return next;
     });
   }, [pathname]);
@@ -126,7 +127,7 @@ export function Sidebar({
   const isHomePage = pathname === "/home";
   const isMonitorPage = pathname === "/monitor";
   const isCampaignsList = pathname === "/campaigns";
-  const isDataList = pathname === "/data";
+  const isSourcesList = pathname === "/sources";
   const isBoardPage = (basePath: string, id: string) => pathname === `${basePath}/${id}`;
 
   const onResizeStart = (e: React.MouseEvent) => {
@@ -146,15 +147,15 @@ export function Sidebar({
       : { width, minWidth: width, borderRight: "1px solid var(--border-light)" }),
   };
 
-  function renderTableList(tables: Table[], basePath: string) {
-    if (tables.length === 0) {
+  function renderItemList(items: NavItem[], basePath: string, emptyLabel: string) {
+    if (items.length === 0) {
       return (
         <span style={{ fontSize: 12, color: "var(--text-tertiary)", paddingLeft: 12 }}>
-          No tables
+          {emptyLabel}
         </span>
       );
     }
-    return tables.map((t) => {
+    return items.map((t) => {
       const isActive = isBoardPage(basePath, t.id);
       return (
         <Link
@@ -189,8 +190,9 @@ export function Sidebar({
     label: string,
     href: string,
     isListActive: boolean,
-    tables: Table[],
+    items: NavItem[],
     basePath: string,
+    emptyLabel: string,
     icon: React.ReactNode,
   ) {
     const isOpen = expandedSections.has(key);
@@ -238,7 +240,7 @@ export function Sidebar({
         </div>
         {isOpen && (
           <div style={{ paddingLeft: 28, marginBottom: 4 }}>
-            {renderTableList(tables, basePath)}
+            {renderItemList(items, basePath, emptyLabel)}
           </div>
         )}
       </div>
@@ -290,19 +292,21 @@ export function Sidebar({
             "Campaigns",
             "/campaigns",
             isCampaignsList,
-            tablesCampaigns,
+            campaigns,
             "/campaigns",
+            "No campaigns",
             <Icon><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" /></Icon>,
           )}
 
-          {/* DATA section */}
+          {/* SOURCES section */}
           {renderSection(
-            "data",
-            "Data",
-            "/data",
-            isDataList,
-            tablesData,
-            "/data",
+            "sources",
+            "Sources",
+            "/sources",
+            isSourcesList,
+            sources,
+            "/sources",
+            "No sources",
             <Icon><path d="M20 6H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H4V8h16v8zM6 12h2v2H6v-2zm3-2h2v2H9v-2zm3 0h2v2h-2v-2zm3 0h2v2h-2v-2z" /></Icon>,
           )}
 

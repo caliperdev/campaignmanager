@@ -77,14 +77,14 @@ export default function MonitorPickers({
       </div>
       <div>
         <label htmlFor="monitor-dt" style={labelStyle}>
-          Data table
+          Source
         </label>
         <select
           id="monitor-dt"
           value={selectedDt ?? ""}
           onChange={handleDataChange}
           style={selectStyle}
-          aria-label="Select data table"
+          aria-label="Select source"
         >
           <option value="">All</option>
           {dataTables.map((t) => (

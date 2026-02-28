@@ -3,10 +3,12 @@ import "@/resources/design-layout.css";
 import { Providers } from "@/components/Providers";
 import { AuthLayout } from "@/components/AuthLayout";
 import { createClient } from "@/lib/supabase/server";
-import { getSidebarData, type Table } from "@/lib/tables";
+import { getSidebarData } from "@/lib/tables";
+import type { Campaign, Source } from "@/db/schema";
 import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 
-const EMPTY_TABLES: Table[] = [];
+const EMPTY_CAMPAIGNS: Campaign[] = [];
+const EMPTY_SOURCES: Source[] = [];
 
 export const metadata = {
   title: "Campaign Manager",
@@ -21,15 +23,15 @@ export default async function RootLayout({
   const supabase = await createClient();
   const userId = supabase ? (await supabase.auth.getUser()).data.user?.id ?? null : null;
   const readOnlyUser = await isReadOnlyMonitorUser();
-  const { tablesCampaigns, tablesData } = readOnlyUser
-    ? { tablesCampaigns: EMPTY_TABLES, tablesData: EMPTY_TABLES }
-    : await getSidebarData(userId);
+  const { campaigns, sources } = readOnlyUser
+    ? { campaigns: EMPTY_CAMPAIGNS, sources: EMPTY_SOURCES }
+    : await getSidebarData();
 
   return (
     <html lang="en">
       <body className="design-layout">
         <Providers>
-          <AuthLayout tablesCampaigns={tablesCampaigns} tablesData={tablesData}>
+          <AuthLayout campaigns={campaigns} sources={sources}>
             {children}
           </AuthLayout>
         </Providers>

@@ -41,7 +41,7 @@ export default function DataImpressionsChart({ rows }: { rows: Row[] }) {
         series={[
           {
             data: data.length > 0 ? data : [0],
-            label: "Data impressions",
+            label: "Source impressions",
             area: true,
             showMark: false,
             valueFormatter: (value) => (typeof value === "number" ? value.toLocaleString("en-US") : String(value)),

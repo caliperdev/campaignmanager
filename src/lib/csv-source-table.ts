@@ -7,22 +7,22 @@ import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 
 const APP_DATA_TAG = "app-data";
 
-export interface CreateDynamicTableResult {
+export interface CreateSourceFromCsvResult {
   success: boolean;
-  tableId?: string;
+  sourceId?: string;
   createdTableName?: string;
   inserted?: number;
   errors: string[];
 }
 
 /**
- * Create a new Supabase table from CSV: one column per header, one row per data row.
- * Single RPC call (create table + batch insert + register in tables).
+ * Create a new source from CSV: one column per header, one row per data row.
+ * Registers in sources table (sources pipeline); uses data_ table prefix.
  */
-export async function createTableFromCsv(
+export async function createSourceFromCsv(
   formData: FormData,
   displayName: string,
-): Promise<CreateDynamicTableResult> {
+): Promise<CreateSourceFromCsvResult> {
   if (await isReadOnlyMonitorUser()) throw new Error("Forbidden");
 
   const file = formData.get("file") as File | null;
@@ -44,7 +44,7 @@ export async function createTableFromCsv(
   const rows = data ?? [];
   const rowsAsJson = rows as unknown as Record<string, string>[];
 
-  const { data: rpcData, error } = await supabase.rpc("create_csv_import_table", {
+  const { data: rpcData, error } = await supabase.rpc("create_source_csv_import_table", {
     p_table_name: pTableName,
     p_columns: headers,
     p_rows: rowsAsJson,
@@ -52,13 +52,13 @@ export async function createTableFromCsv(
   });
 
   if (error) {
-    console.error("[csv-dynamic-table] RPC failed:", error);
+    console.error("[csv-source-table] RPC failed:", error);
     return { success: false, errors: [error.message] };
   }
 
   const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-  if (!row?.campaign_id) {
-    return { success: false, errors: ["Import did not return a campaign id."] };
+  if (!row?.source_id) {
+    return { success: false, errors: ["Import did not return a source id."] };
   }
 
   revalidateTag(APP_DATA_TAG, "max");
@@ -66,7 +66,7 @@ export async function createTableFromCsv(
 
   return {
     success: true,
-    tableId: row.campaign_id as string,
+    sourceId: row.source_id as string,
     createdTableName: row.created_table_name as string,
     inserted: Number(row.rows_inserted ?? 0),
     errors: [],

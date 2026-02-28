@@ -3,29 +3,18 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui";
-import {
-  importDataCsv,
-  previewDataCsv,
-  type DataImportResult,
-  type DataCsvColumnMapping,
-  type DataPreviewResult,
-} from "@/lib/data-import";
-import { setTableColumnHeaders } from "@/lib/table-actions";
-import { appendDataEntryIdsToTable } from "@/lib/data-entry";
+import { previewCsv, type CsvPreviewResult } from "@/lib/csv-import";
+import { createSourceFromCsv, type CreateSourceFromCsvResult } from "@/lib/csv-source-table";
 
 const TOAST_DURATION_MS = 10_000;
 
-interface DataImportButtonProps {
-  tableId?: string;
-}
-
-export default function DataImportButton({ tableId }: DataImportButtonProps) {
+export default function SourceCsvImportButton() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [importResult, setImportResult] = useState<DataImportResult | null>(null);
+  const [importResult, setImportResult] = useState<CreateSourceFromCsvResult | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<DataPreviewResult | null>(null);
-  const [columnMapping, setColumnMapping] = useState<DataCsvColumnMapping>({});
+  const [preview, setPreview] = useState<CsvPreviewResult | null>(null);
+  const [sourceName, setSourceName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -48,14 +37,10 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
     fd.append("file", file);
 
     startTransition(async () => {
-      const previewResult = await previewDataCsv(fd);
+      const previewResult = await previewCsv(fd);
       setPendingFile(file);
       setPreview(previewResult);
-      const headers = previewResult.headers;
-      setColumnMapping({
-        date: headers.find((h) => /date|report|day/i.test(h)) ?? headers[0] ?? "",
-        impressions: headers.find((h) => /impression|view|delivery/i.test(h)) ?? headers[1] ?? "",
-      });
+      setSourceName(file.name.replace(/\.csv$/i, "").trim() || "import");
       if (fileRef.current) fileRef.current.value = "";
     });
   }
@@ -63,7 +48,7 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
   function closePreview() {
     setPreview(null);
     setPendingFile(null);
-    setColumnMapping({});
+    setSourceName("");
   }
 
   function handleConfirmImport() {
@@ -76,13 +61,12 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
 
     startTransition(async () => {
       try {
-        const res = await importDataCsv(fd, columnMapping);
+        const res = await createSourceFromCsv(fd, sourceName.trim() || pendingFile.name.replace(/\.csv$/i, ""));
         setImportResult(res);
-        if (tableId && res.insertedIds?.length) {
-          await appendDataEntryIdsToTable(tableId, res.insertedIds);
-          if (res.headers?.length) await setTableColumnHeaders(tableId, res.headers);
+        if (res.success && res.sourceId) {
+          router.refresh();
+          router.push(`/sources/${res.sourceId}`);
         }
-        router.refresh();
       } finally {
         setIsImporting(false);
       }
@@ -90,7 +74,7 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
   }
 
   const showPreview = preview !== null && !isPending;
-  const canImport = preview != null && preview.rowCount > 0 && Boolean(columnMapping.date) && Boolean(columnMapping.impressions);
+  const canImport = preview != null && preview.headers.length > 0 && sourceName.trim().length > 0;
 
   return (
     <>
@@ -109,7 +93,7 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
         style={isPending || isImporting ? { cursor: "wait", opacity: 0.8 } : undefined}
       >
         {(isPending || isImporting) && <span className="btn-loader" aria-hidden />}
-        {isPending ? "Loading…" : isImporting ? "Importing…" : "Data import"}
+        {isPending ? "Loading…" : isImporting ? "Importing…" : "Import CSV"}
       </Button>
 
       {isImporting && (
@@ -138,7 +122,7 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
       {showPreview && preview && (
         <div
           role="dialog"
-          aria-labelledby="data-import-preview-title"
+          aria-labelledby="source-csv-preview-title"
           aria-modal="true"
           style={{
             position: "fixed",
@@ -176,8 +160,8 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
                 justifyContent: "space-between",
               }}
             >
-              <h2 id="data-import-preview-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>
-                Data import preview
+              <h2 id="source-csv-preview-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>
+                Import CSV as new source
               </h2>
               <button
                 type="button"
@@ -198,58 +182,34 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
 
             <div style={{ padding: "16px 20px", overflow: "auto", flex: 1 }}>
               <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)" }}>
-                First row = column names. <strong>{preview.rowCount}</strong> row{preview.rowCount !== 1 ? "s" : ""} will be imported.
+                A new source will be created with the same columns and rows as the CSV. The source name is taken from the file name; you can edit it below.
               </p>
 
-              {preview.headers.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
-                    Column mapping
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 24px", alignItems: "center" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>Date</span>
-                      <select
-                        value={columnMapping.date ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, date: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text-secondary)" }}>
-                      <span style={{ minWidth: 90 }}>Impressions</span>
-                      <select
-                        value={columnMapping.impressions ?? ""}
-                        onChange={(e) => setColumnMapping((m) => ({ ...m, impressions: e.target.value }))}
-                        style={{
-                          padding: "6px 10px",
-                          fontSize: 13,
-                          border: "1px solid var(--border-light)",
-                          borderRadius: "var(--radius-sm)",
-                          background: "var(--bg-primary)",
-                          color: "var(--text-primary)",
-                          minWidth: 160,
-                        }}
-                      >
-                        {preview.headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              )}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                  Source name
+                </label>
+                <input
+                  type="text"
+                  value={sourceName}
+                  onChange={(e) => setSourceName(e.target.value)}
+                  placeholder="Source name"
+                  style={{
+                    padding: "8px 12px",
+                    fontSize: 13,
+                    border: "1px solid var(--border-light)",
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--bg-primary)",
+                    color: "var(--text-primary)",
+                    width: "100%",
+                    maxWidth: 320,
+                  }}
+                />
+              </div>
+
+              <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--text-secondary)" }}>
+                <strong>{preview.headers.length}</strong> column{preview.headers.length !== 1 ? "s" : ""}, <strong>{preview.rowCount}</strong> row{preview.rowCount !== 1 ? "s" : ""}.
+              </p>
 
               {preview.headers.length > 0 ? (
                 <div>
@@ -276,36 +236,23 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: "var(--bg-secondary)" }}>
-                          {preview.headers.map((h) => {
-                            const role =
-                              columnMapping.date === h
-                                ? "Date"
-                                : columnMapping.impressions === h
-                                  ? "Impressions"
-                                  : null;
-                            return (
-                              <th
-                                key={h}
-                                style={{
-                                  textAlign: "left",
-                                  padding: "8px 10px",
-                                  fontWeight: 600,
-                                  whiteSpace: "nowrap",
-                                  position: "sticky",
-                                  top: 0,
-                                  zIndex: 1,
-                                  background: "var(--bg-secondary)",
-                                }}
-                              >
-                                <div>{h}</div>
-                                {role && (
-                                  <div style={{ fontSize: 11, fontWeight: 500, color: "var(--text-tertiary)", marginTop: 2 }}>
-                                    → {role}
-                                  </div>
-                                )}
-                              </th>
-                            );
-                          })}
+                          {preview.headers.map((h) => (
+                            <th
+                              key={h}
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 10px",
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 1,
+                                background: "var(--bg-secondary)",
+                              }}
+                            >
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
@@ -324,9 +271,9 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
                 </div>
               ) : null}
 
-              {preview.rowCount === 0 && (
+              {preview.rowCount === 0 && preview.headers.length > 0 && (
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-tertiary)" }}>
-                  No data rows (only headers or empty file).
+                  No data rows (only headers). Source will be created with column headers only.
                 </p>
               )}
             </div>
@@ -349,14 +296,14 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
                 onClick={handleConfirmImport}
                 disabled={!canImport}
               >
-                Import {preview.rowCount} row{preview.rowCount !== 1 ? "s" : ""}
+                Create source
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {importResult && (
+      {importResult && !importResult.success && (
         <div
           role="status"
           aria-live="polite"
@@ -377,9 +324,7 @@ export default function DataImportButton({ tableId }: DataImportButtonProps) {
             animation: "design-layout-toast-in 0.25s var(--anim-ease)",
           }}
         >
-          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
-            Imported {importResult.inserted} row{importResult.inserted !== 1 ? "s" : ""}.
-          </span>
+          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>Import failed.</span>
           {importResult.errors.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {importResult.errors.map((err) => (

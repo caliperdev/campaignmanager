@@ -1,13 +1,10 @@
 /**
- * Tables — Supabase only (no localStorage).
- * Types and async getters for server components. Mutations via table-actions.
- * All reads are cached with tag "app-data"; use revalidateTag("app-data") to refresh.
+ * Campaigns and sources — Supabase. Mutations via table-actions.
+ * All reads cached with tag "app-data".
  */
 import { unstable_cache } from "next/cache";
 import { supabase } from "@/db";
-import type { Campaign } from "@/db/schema";
-import { getCampaignsByIds } from "@/lib/campaign";
-import { buildCampaignListItems, type CampaignListItem } from "@/lib/campaign-grid";
+import type { Campaign, Source } from "@/db/schema";
 
 const CACHE_TAG = "app-data";
 
@@ -15,180 +12,110 @@ function cached<T>(fn: () => Promise<T>, key: string[]): Promise<T> {
   return unstable_cache(fn, key, { tags: [CACHE_TAG], revalidate: false })();
 }
 
-export type TableSection = "campaign" | "data";
+const CAMPAIGNS_TABLE = "campaigns";
+const SOURCES_TABLE = "sources";
 
-export type Table = {
+function rowToCampaign(row: {
   id: string;
   name: string;
-  subtitle?: string;
-  columnHeaders?: string[];
-  section: TableSection;
-  /** When set, table data comes from this Postgres table (CSV import). */
-  dynamicTableName?: string;
-};
-
-export type TableUpdate = Partial<Pick<Table, "name" | "subtitle" | "columnHeaders">>;
-
-const TABLES_TABLE = "tables";
-const TABLE_CAMPAIGNS_TABLE = "table_campaigns";
-
-function rowToTable(row: {
-  id: string;
-  name: string;
-  subtitle?: string | null;
+  dynamic_table_name: string;
   column_headers?: string[] | null;
-  section?: string | null;
-  dynamic_table_name?: string | null;
-}): Table {
+  created_at: string;
+  updated_at: string;
+}): Campaign {
   const ch = row.column_headers;
   return {
     id: row.id,
     name: row.name ?? "",
-    subtitle: row.subtitle ?? undefined,
+    dynamicTableName: row.dynamic_table_name ?? "",
     columnHeaders: Array.isArray(ch) ? ch : undefined,
-    section: (row.section as TableSection) ?? "campaign",
-    dynamicTableName: row.dynamic_table_name ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
-async function getTablesUncached(userId: string | null, section?: TableSection): Promise<Table[]> {
-  let q = supabase
-    .from(TABLES_TABLE)
-    .select("id, name, subtitle, column_headers, section, dynamic_table_name")
-    .order("created_at", { ascending: true });
-  // Show campaign/data tables for any authenticated user (no user_id filter)
-  if (section) q = q.eq("section", section);
-  const { data, error } = await q;
-  if (error) return [];
-  return (data ?? []).map(rowToTable);
+function rowToSource(row: {
+  id: string;
+  name: string;
+  dynamic_table_name: string;
+  column_headers?: string[] | null;
+  created_at: string;
+}): Source {
+  const ch = row.column_headers;
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    dynamicTableName: row.dynamic_table_name ?? "",
+    columnHeaders: Array.isArray(ch) ? ch : undefined,
+    createdAt: row.created_at,
+  };
 }
 
-/** Server-only. Get tables for a user, optionally filtered by section (cached). */
-export async function getTables(userId: string | null, section?: TableSection): Promise<Table[]> {
-  return cached(
-    () => getTablesUncached(userId, section),
-    ["tables", userId ?? "", section ?? "all"],
-  );
-}
-
-async function getTableUncached(tableId: string): Promise<Table | null> {
-  const { data, error } = await supabase
-    .from(TABLES_TABLE)
-    .select("id, name, subtitle, column_headers, section, dynamic_table_name")
-    .eq("id", tableId)
-    .single();
-  if (error || !data) return null;
-  return rowToTable(data);
-}
-
-/** Server-only. Get a single table by id (cached). */
-export async function getTable(tableId: string): Promise<Table | null> {
-  return cached(() => getTableUncached(tableId), ["table", tableId]);
-}
-
-const TABLE_CAMPAIGNS_PAGE_SIZE = 1000;
-
-async function getCampaignIdsForTableUncached(tableId: string): Promise<number[]> {
-  const all: number[] = [];
-  let offset = 0;
-  while (true) {
+/** Server-only. Get all campaigns (cached). */
+export async function getCampaigns(): Promise<Campaign[]> {
+  return cached(async () => {
     const { data, error } = await supabase
-      .from(TABLE_CAMPAIGNS_TABLE)
-      .select("campaign_id, sort_order")
-      .eq("table_id", tableId)
-      .order("sort_order", { ascending: true })
-      .range(offset, offset + TABLE_CAMPAIGNS_PAGE_SIZE - 1);
+      .from(CAMPAIGNS_TABLE)
+      .select("id, name, dynamic_table_name, column_headers, created_at, updated_at")
+      .order("created_at", { ascending: true });
     if (error) return [];
-    const page = (data ?? []).map((r) => r.campaign_id);
-    all.push(...page);
-    if (page.length < TABLE_CAMPAIGNS_PAGE_SIZE) break;
-    offset += TABLE_CAMPAIGNS_PAGE_SIZE;
-  }
-  return all;
+    return (data ?? []).map(rowToCampaign);
+  }, ["campaigns"]);
 }
 
-export async function getCampaignIdsForTable(tableId: string): Promise<number[]> {
-  return cached(() => getCampaignIdsForTableUncached(tableId), ["table-campaigns", tableId]);
+/** Server-only. Get a single campaign by id (cached). */
+export async function getCampaign(id: string): Promise<Campaign | null> {
+  return cached(async () => {
+    const { data, error } = await supabase
+      .from(CAMPAIGNS_TABLE)
+      .select("id, name, dynamic_table_name, column_headers, created_at, updated_at")
+      .eq("id", id)
+      .single();
+    if (error || !data) return null;
+    return rowToCampaign(data);
+  }, ["campaign", id]);
 }
 
-/** Server-only. Sidebar data: tables grouped by section (cached). */
-export async function getSidebarData(
-  userId: string | null,
-): Promise<{ tablesCampaigns: Table[]; tablesData: Table[] }> {
+/** Server-only. Get all sources (cached). */
+export async function getSources(): Promise<Source[]> {
+  return cached(async () => {
+    const { data, error } = await supabase
+      .from(SOURCES_TABLE)
+      .select("id, name, dynamic_table_name, column_headers, created_at")
+      .order("created_at", { ascending: true });
+    if (error) return [];
+    return (data ?? []).map(rowToSource);
+  }, ["sources"]);
+}
+
+/** Server-only. Get a single source by id (cached). */
+export async function getSource(id: string): Promise<Source | null> {
+  return cached(async () => {
+    const { data, error } = await supabase
+      .from(SOURCES_TABLE)
+      .select("id, name, dynamic_table_name, column_headers, created_at")
+      .eq("id", id)
+      .single();
+    if (error || !data) return null;
+    return rowToSource(data);
+  }, ["source", id]);
+}
+
+/** Server-only. Sidebar data (cached). */
+export async function getSidebarData(): Promise<{ campaigns: Campaign[]; sources: Source[] }> {
   return cached(
-    async () => {
-      const all = await getTablesUncached(userId);
-      return {
-        tablesCampaigns: all.filter((t) => t.section === "campaign"),
-        tablesData: all.filter((t) => t.section === "data"),
-      };
-    },
-    ["sidebar", userId ?? ""],
+    async () => ({
+      campaigns: await getCampaigns(),
+      sources: await getSources(),
+    }),
+    ["sidebar"],
   );
 }
 
-async function getCampaignListForTableUncached(tableId: string): Promise<CampaignListItem[]> {
-  const ids = await getCampaignIdsForTableUncached(tableId);
-  if (ids.length === 0) return [];
-  const campaigns = await getCampaignsByIds(ids);
-  const byId = new Map(campaigns.map((c) => [c.id, c]));
-  const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as Campaign[];
-  return buildCampaignListItems(ordered);
-}
-
-/** Server-only. Campaign list items for a table in table order (cached). */
-export async function getCampaignListForTable(tableId: string): Promise<CampaignListItem[]> {
-  return cached(() => getCampaignListForTableUncached(tableId), ["campaigns-for-table", tableId]);
-}
-
-async function getCampaignIdsForTableRangeUncached(
-  tableId: string,
-  offset: number,
-  limit: number,
-): Promise<number[]> {
-  const { data, error } = await supabase
-    .from(TABLE_CAMPAIGNS_TABLE)
-    .select("campaign_id")
-    .eq("table_id", tableId)
-    .order("sort_order", { ascending: true })
-    .range(offset, offset + limit - 1);
-  if (error) return [];
-  return (data ?? []).map((r) => r.campaign_id);
-}
-
-async function getTableCampaignCountUncached(tableId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from(TABLE_CAMPAIGNS_TABLE)
-    .select("campaign_id", { count: "exact", head: true })
-    .eq("table_id", tableId);
-  if (error) return 0;
-  return count ?? 0;
-}
-
-export async function getTableCampaignCount(tableId: string): Promise<number> {
-  return cached(() => getTableCampaignCountUncached(tableId), ["table-campaign-count", tableId]);
-}
-
-/** Server-only. One page of campaign list items for a table (uncached). */
-export async function getCampaignListForTableChunk(
-  tableId: string,
-  offset: number,
-  limit: number,
-): Promise<CampaignListItem[]> {
-  const ids = await getCampaignIdsForTableRangeUncached(tableId, offset, limit);
-  if (ids.length === 0) return [];
-  const campaigns = await getCampaignsByIds(ids);
-  const byId = new Map(campaigns.map((c) => [c.id, c]));
-  const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as Campaign[];
-  return buildCampaignListItems(ordered);
-}
-
-/** Row from a dynamic (CSV-import) table: id + string columns. */
+/** Row from a dynamic table: id + string columns. */
 export type DynamicTableRow = { id: number; [k: string]: unknown };
 
-/**
- * Server-only. One request: chunk of rows + total count for a dynamic table (single round-trip).
- */
+/** Server-only. Chunk of rows + total for a dynamic table. */
 export async function getDynamicTableChunkWithCount(
   dynamicTableName: string,
   offset: number,

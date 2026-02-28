@@ -82,10 +82,10 @@ export default function RefreshMonitorButton({ dataTableId }: Props) {
         onClick={handleRefresh}
         disabled={isRunning}
         style={isRunning ? { cursor: "wait", opacity: 0.8 } : undefined}
-        title="Re-aggregate Data impressions from all Data tables (batched, cached)"
+        title="Re-aggregate source impressions from all Sources (batched, cached)"
       >
         {isRunning && <span className="btn-loader" aria-hidden />}
-        {isRunning ? "Refreshing…" : "Refresh data (impressions)"}
+        {isRunning ? "Refreshing…" : "Refresh source impressions"}
       </Button>
 
       {showBar && (

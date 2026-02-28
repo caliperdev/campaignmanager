@@ -1,32 +1,10 @@
 import { NextResponse } from "next/server";
-import { getImpressionsByYearMonth } from "@/lib/campaign";
-import {
-  getDataImpressionsByYearMonth,
-  getDeliveredLinesByYearMonth,
-  getMonitorCostsByYearMonth,
-  getMonitorBookedRevenueByYearMonth,
-} from "@/lib/data-query";
-import { mergeMonitorRows, type MonitorDataPayload } from "@/lib/monitor-data";
+import { getMonitorRows } from "@/lib/data-query";
+import { toMonitorDisplayRows, type MonitorDataPayload } from "@/lib/monitor-data";
 
-/**
- * Monitor-only: returns cached data for the Monitor page. Does not affect core architecture.
- * Uses getImpressionsByYearMonth + getDataImpressionsByYearMonth + getDeliveredLinesByYearMonth (cached).
- */
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const ct = searchParams.get("ct") ?? undefined;
-  const dt = searchParams.get("dt") ?? undefined;
-
-  const [campaignResult, dataRows, deliveredLinesRows, costRows, bookedRevenueRows] = await Promise.all([
-    getImpressionsByYearMonth(ct ? { tableId: ct } : undefined),
-    getDataImpressionsByYearMonth(dt || undefined),
-    getDeliveredLinesByYearMonth(dt || undefined),
-    getMonitorCostsByYearMonth(dt || undefined),
-    getMonitorBookedRevenueByYearMonth(ct || undefined),
-  ]);
-
-  const { rows: campaignRows, totalUniqueCampaignCount } = campaignResult;
-  const rows = mergeMonitorRows(campaignRows, dataRows, deliveredLinesRows, costRows, bookedRevenueRows);
+export async function GET() {
+  const monitorRows = await getMonitorRows();
+  const rows = toMonitorDisplayRows(monitorRows);
   const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
   const totalDataImpressions = rows.reduce((acc, r) => acc + r.dataImpressions, 0);
   const totalDeliveredLines = rows.reduce((acc, r) => acc + r.deliveredLines, 0);
@@ -37,9 +15,9 @@ export async function GET(request: Request) {
   const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
 
   const payload: MonitorDataPayload = {
-    campaignRows,
-    totalUniqueCampaignCount,
-    dataRows,
+    campaignRows: [],
+    totalUniqueCampaignCount: 0,
+    dataRows: [],
     rows,
     totalImpressions,
     totalDataImpressions,

@@ -3,12 +3,13 @@
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
-import type { Table } from "@/lib/tables";
+import type { Campaign, Source } from "@/db/schema";
 
 const PUBLIC_PATHS = ["/", "/login"];
 const SHARE_PATH = "/share";
 const MOBILE_BREAKPOINT = 768;
-const EMPTY_TABLES: Table[] = [];
+const EMPTY_CAMPAIGNS: Campaign[] = [];
+const EMPTY_SOURCES: Source[] = [];
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -24,12 +25,12 @@ function useIsMobile() {
 
 export function AuthLayout({
   children,
-  tablesCampaigns = EMPTY_TABLES,
-  tablesData = EMPTY_TABLES,
+  campaigns = EMPTY_CAMPAIGNS,
+  sources = EMPTY_SOURCES,
 }: {
   children: React.ReactNode;
-  tablesCampaigns?: Table[];
-  tablesData?: Table[];
+  campaigns?: Campaign[];
+  sources?: Source[];
 }) {
   const pathname = usePathname();
   const isMobile = useIsMobile();
@@ -51,7 +52,7 @@ export function AuthLayout({
   return (
     <div className="app-container">
       <div className="sidebar-desktop-only" style={{ display: "flex", flexShrink: 0 }}>
-        <Sidebar isMobile={false} tablesCampaigns={tablesCampaigns} tablesData={tablesData} />
+        <Sidebar isMobile={false} campaigns={campaigns} sources={sources} />
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {isMobile && (
@@ -137,7 +138,7 @@ export function AuthLayout({
                   </svg>
                 </button>
               </div>
-              <Sidebar isMobile={true} tablesCampaigns={tablesCampaigns} tablesData={tablesData} />
+              <Sidebar isMobile={true} campaigns={campaigns} sources={sources} />
             </div>
           </>
         )}
