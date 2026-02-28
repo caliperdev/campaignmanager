@@ -7,6 +7,7 @@ import { updateCampaign, deleteCampaign, updateSource, deleteSource } from "@/li
 import type { Campaign, Source } from "@/db/schema";
 import CsvImportButton from "@/components/CsvImportButton";
 import SourceCsvImportButton from "@/components/SourceCsvImportButton";
+import DataverseImportButton from "@/components/DataverseImportButton";
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -92,6 +93,7 @@ export function BoardListPage({
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {section === "campaign" && <CsvImportButton />}
           {section === "sources" && <SourceCsvImportButton />}
+          {section === "sources" && <DataverseImportButton />}
         </div>
       </div>
 
