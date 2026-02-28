@@ -38,7 +38,17 @@ npm run start
 |-----------------------------|----------------------------------------------------|
 | `NEXT_PUBLIC_SUPABASE_URL`  | Supabase project URL (required).                   |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key for auth (required for login). |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key, server-only (required).  |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key, server-only (required). |
+| `READ_ONLY_MONITOR_EMAIL`   | Optional. Single email with monitor-only view.     |
+| `FULL_ACCESS_EMAILS`        | Optional. Comma-separated emails that always see full sidebar (campaigns, sources, home). |
+
+## Vercel Deployment
+
+For the left pane (campaigns, sources) to show for all full-access users on Vercel:
+
+1. **Add all env vars** from `.env.local` to Vercel: Project Settings → Environment Variables.
+2. **Required for full sidebar**: `SUPABASE_SERVICE_ROLE_KEY` (data fetch) and `FULL_ACCESS_EMAILS=emma@buhomedia.com,test@buhomedia.com` (so emma sees same view as test).
+3. Use the **same Supabase project** as localhost so campaigns/sources data is identical.
 # campaign_manager
 # campaignmanager
 # campaignmanager
