@@ -510,6 +510,7 @@ export async function getDynamicTableChunkWithCount(
 export const PLACEMENTS_TABLE_COLUMN_HEADERS = [
   "Placement ID",
   "Placement",
+  "Category",
   "Format",
   "Deal",
   "Start Date",

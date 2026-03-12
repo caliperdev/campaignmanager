@@ -48,6 +48,10 @@ export default async function EditPlacementPage({
   if (!placementRow) notFound();
 
   const displayCampaignId = campaign?.externalId?.trim() || campaign?.name || decodedCampaignId;
+  const enrichedPlacementRow = {
+    ...placementRow,
+    category: (placementRow as Record<string, unknown>).category ?? campaign?.category ?? null,
+  };
   const [advertiser, agency] = await Promise.all([
     campaign ? getAdvertiser(campaign.advertiserId) : Promise.resolve(null),
     campaign?.agencyId ? getAgency(campaign.agencyId) : Promise.resolve(null),
@@ -110,7 +114,7 @@ export default async function EditPlacementPage({
           campaignId={campaignId}
           placementId={placementId}
           returnPath={`/campaigns/${campaignId}/orders/${orderId}`}
-          initialRow={placementRow}
+          initialRow={enrichedPlacementRow}
           orderName={order.name}
           campaignDisplayId={displayCampaignId}
           orderAgencyName={agency?.name}

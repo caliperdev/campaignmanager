@@ -18,6 +18,7 @@ const PLACEMENT_DB_COLUMNS = new Set([
   "placement_id", "placement", "trafficker", "am", "qa_am", "format", "deal",
   "start_date", "end_date", "impressions", "cpm_client", "cpm_adops",
   "insertion_order_id_dsp", "insertion_order_name", "order_campaign_id", "order_campaign",
+  "category",
   "dark_days", "per_day_impressions", "dark_ranges", "assigned_ranges",
   "cpm_celtra", "budget_adops", "budget_client", "pacing", "targeting_audience", "important",
   "kpi", "kpi_vcr", "kpi_ctr", "kpi_view", "kpi_bsafe", "kpi_oog", "kpi_ivt",

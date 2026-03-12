@@ -78,6 +78,9 @@ export interface Placement {
   cpmAdops?: string | null;
   insertionOrderIdDsp?: string | null;
   insertionOrderName?: string | null;
+  orderCampaignId?: string | null;
+  orderCampaign?: string | null;
+  category?: string | null;
   darkDays?: string | null;
   perDayImpressions?: string | null;
   darkRanges?: string | null;

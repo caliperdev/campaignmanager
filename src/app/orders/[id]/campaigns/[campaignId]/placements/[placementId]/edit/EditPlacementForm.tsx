@@ -270,6 +270,7 @@ export function EditPlacementForm({
         qa_am: qaAm,
         order_campaign_id: campaignDisplayId,
         order_campaign: campaignDisplayId,
+        category: getRowValue(initialRow, "Category") || "",
         dark_days: JSON.stringify(darkRangesToDarkDays(darkRanges)),
         per_day_impressions: JSON.stringify(assignedRangesToPerDay(assignedRanges)),
         dark_ranges: JSON.stringify(darkRanges),

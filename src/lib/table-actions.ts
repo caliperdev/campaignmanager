@@ -521,6 +521,7 @@ function rowToPlacementPayload(orderId: string, row: Record<string, string>): Re
     insertion_order_name: (get("Insertion Order Name") || row.insertion_order_name) ?? null,
     order_campaign_id: (get("Order Campaign ID") || row.order_campaign_id) ?? null,
     order_campaign: (get("Order Campaign") || row.order_campaign) ?? null,
+    category: (get("Category") || row.category) ?? null,
     dark_days: row.dark_days ?? null,
     per_day_impressions: row.per_day_impressions ?? null,
     dark_ranges: row.dark_ranges ?? null,
