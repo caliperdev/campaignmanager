@@ -1,45 +1,15 @@
 "use server";
 
 /**
- * Monitor cache: pre-computed results per (order_id, source_id).
- * Read from cache; compute only on miss or explicit refresh.
+ * Monitor: compute results per (order_id, source_id).
+ * Uses Next.js unstable_cache only (monitor_cache table was renamed to dashboard_cache for dashboard).
  */
 import { revalidateTag, unstable_cache } from "next/cache";
-import { supabase } from "@/db";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import type { MonitorDisplayRow } from "@/lib/monitor-data";
 import { aggregateMonitorFromOrderAndSource } from "@/lib/monitor-aggregate";
 
 const MONITOR_CACHE_TAG = "monitor-data";
-const CACHE_TTL_MINUTES = 15;
-
-type CacheRow = {
-  year_month: string;
-  active_order_count: number;
-  booked_impressions: number;
-  delivered_impressions: number;
-  delivered_lines: number;
-  media_cost: number;
-  media_fees: number;
-  celtra_cost: number;
-  total_cost: number;
-  booked_revenue: number;
-};
-
-function cacheRowToDisplayRow(r: CacheRow): MonitorDisplayRow {
-  return {
-    yearMonth: r.year_month,
-    sumImpressions: Number(r.booked_impressions),
-    activeOrderCount: Number(r.active_order_count),
-    dataImpressions: Number(r.delivered_impressions),
-    deliveredLines: Number(r.delivered_lines),
-    mediaCost: Number(r.media_cost),
-    mediaFees: Number(r.media_fees),
-    celtraCost: Number(r.celtra_cost),
-    totalCost: Number(r.total_cost),
-    bookedRevenue: Number(r.booked_revenue),
-  };
-}
 
 function rowsToPayload(rows: MonitorDisplayRow[]): MonitorDataPayload {
   const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
@@ -68,81 +38,14 @@ function rowsToPayload(rows: MonitorDisplayRow[]): MonitorDataPayload {
   };
 }
 
-/** Read cached rows from monitor_cache. */
-async function getMonitorCacheRows(orderId: string, sourceId: string): Promise<CacheRow[]> {
-  const { data, error } = await supabase
-    .from("monitor_cache")
-    .select("year_month, active_order_count, booked_impressions, delivered_impressions, delivered_lines, media_cost, media_fees, celtra_cost, total_cost, booked_revenue")
-    .eq("order_id", orderId)
-    .eq("source_id", sourceId)
-    .order("year_month", { ascending: true });
-
-  if (error) return [];
-  return (data ?? []) as CacheRow[];
-}
-
-/** Check if cache is stale (older than TTL). */
-async function isCacheStale(orderId: string, sourceId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("monitor_cache")
-    .select("updated_at")
-    .eq("order_id", orderId)
-    .eq("source_id", sourceId)
-    .limit(1)
-    .single();
-
-  if (!data?.updated_at) return true;
-  const updated = new Date(data.updated_at as string).getTime();
-  return Date.now() - updated > CACHE_TTL_MINUTES * 60 * 1000;
-}
-
-/** Upsert computed rows into monitor_cache. Replaces all rows for (order_id, source_id). */
-async function upsertMonitorCache(
-  orderId: string,
-  sourceId: string,
-  rows: MonitorDisplayRow[]
-): Promise<void> {
-  await supabase.from("monitor_cache").delete().eq("order_id", orderId).eq("source_id", sourceId);
-
-  if (rows.length === 0) return;
-
-  const toInsert = rows.map((r) => ({
-    order_id: orderId,
-    source_id: sourceId,
-    year_month: r.yearMonth,
-    active_order_count: r.activeOrderCount,
-    booked_impressions: r.sumImpressions,
-    delivered_impressions: r.dataImpressions,
-    delivered_lines: r.deliveredLines,
-    media_cost: r.mediaCost,
-    media_fees: r.mediaFees,
-    celtra_cost: r.celtraCost,
-    total_cost: r.totalCost,
-    booked_revenue: r.bookedRevenue,
-  }));
-
-  await supabase.from("monitor_cache").insert(toInsert);
-}
-
-/** Get monitor data from cache or compute and cache. Cached with Next.js unstable_cache. */
+/** Get monitor data. Cached with Next.js unstable_cache. */
 export async function getOrComputeMonitorData(
   orderId: string,
   sourceId: string
 ): Promise<MonitorDataPayload> {
   return unstable_cache(
     async () => {
-      const cached = await getMonitorCacheRows(orderId, sourceId);
-      const stale = await isCacheStale(orderId, sourceId);
-
-      if (cached.length > 0 && !stale) {
-        const rows = cached.map(cacheRowToDisplayRow);
-        return rowsToPayload(rows);
-      }
-
       const rows = await aggregateMonitorFromOrderAndSource(orderId, sourceId);
-      if (rows.length > 0) {
-        await upsertMonitorCache(orderId, sourceId, rows);
-      }
       return rowsToPayload(rows);
     },
     ["monitor-cache", orderId, sourceId],
@@ -150,9 +53,7 @@ export async function getOrComputeMonitorData(
   )();
 }
 
-/** Force re-compute and cache. Call from Refresh button. */
+/** Force re-compute. Call from Refresh button. */
 export async function refreshMonitorCache(orderId: string, sourceId: string): Promise<void> {
-  const rows = await aggregateMonitorFromOrderAndSource(orderId, sourceId);
-  await upsertMonitorCache(orderId, sourceId, rows);
   revalidateTag(MONITOR_CACHE_TAG, "max");
 }
