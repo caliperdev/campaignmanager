@@ -5,13 +5,14 @@
  * Join: placement.insertion_order_id_dsp = DSP.cr4fe_insertionordergid
  */
 import { revalidateTag, unstable_cache } from "next/cache";
-import { supabase } from "@/db";
+import { supabase, supabaseReadOnly } from "@/db";
 import { PLACEMENTS_TABLE } from "@/db/schema";
 import { getSourceByType, getSourceDataFull } from "@/app/test-link/actions";
 import { allocateImpressionsByMonth } from "@/lib/placement-allocator";
 import type { MonitorDisplayRow } from "@/lib/monitor-data";
 
 const DASHBOARD_CACHE_TAG = "dashboard-placements-dsp";
+const DASHBOARD_CACHE_TABLE = "dashboard_cache";
 
 const DATE_COLUMNS = ["cr4fe_date", "cr4fe_reportdate", "report_date", "reportdate", "ReportDate", "date"];
 const IMPRESSIONS_COLUMNS = ["cr4fe_impressioncount", "cr4fe_impressions", "impressions", "impression_count", "impressioncount", "delivered_impressions"];
@@ -136,9 +137,9 @@ function getVal(row: Record<string, unknown>, col: string): string {
   return v !== undefined && v !== null ? String(v) : "";
 }
 
-/** Fetch placements with insertion_order_id_dsp from placements table. */
+/** Fetch placements with insertion_order_id_dsp from placements table. Read-only. */
 async function getPlacementsWithIoDsp(ioFilter?: string | null): Promise<PlacementRow[]> {
-  let q = supabase
+  let q = supabaseReadOnly
     .from(PLACEMENTS_TABLE)
     .select("order_id, insertion_order_id_dsp, start_date, end_date, impressions, cpm_adops, cpm_celtra, dark_days, per_day_impressions")
     .not("insertion_order_id_dsp", "is", null)
@@ -151,9 +152,9 @@ async function getPlacementsWithIoDsp(ioFilter?: string | null): Promise<Placeme
   return (data ?? []) as PlacementRow[];
 }
 
-/** Fetch distinct insertion_order_id_dsp values for filter dropdown. */
+/** Fetch distinct insertion_order_id_dsp values for filter dropdown. Read-only. */
 export async function getDistinctInsertionOrderIds(): Promise<string[]> {
-  const { data, error } = await supabase
+  const { data, error } = await supabaseReadOnly
     .from(PLACEMENTS_TABLE)
     .select("insertion_order_id_dsp")
     .not("insertion_order_id_dsp", "is", null)
@@ -202,145 +203,212 @@ function computeBookedByIoAndMonth(placements: PlacementRow[]): Map<string, Map<
   return byIoAndMonth;
 }
 
-/** Aggregate placements + DSP source by month. Returns MonitorDisplayRow[]. */
+/** Read cached rows from dashboard_cache. Read-only. */
+async function getDashboardCacheRows(ioFilter: string): Promise<MonitorDisplayRow[]> {
+  const { data, error } = await supabaseReadOnly
+    .from(DASHBOARD_CACHE_TABLE)
+    .select("year_month, active_order_count, booked_impressions, delivered_impressions, delivered_lines, media_cost, media_fees, celtra_cost, total_cost, booked_revenue")
+    .eq("io_filter", ioFilter)
+    .order("year_month", { ascending: true });
+
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    yearMonth: r.year_month,
+    sumImpressions: Number(r.booked_impressions),
+    activeOrderCount: Number(r.active_order_count),
+    dataImpressions: Number(r.delivered_impressions),
+    deliveredLines: Number(r.delivered_lines),
+    mediaCost: Number(r.media_cost),
+    mediaFees: Number(r.media_fees),
+    celtraCost: Number(r.celtra_cost),
+    totalCost: Number(r.total_cost),
+    bookedRevenue: Number(r.booked_revenue),
+  }));
+}
+
+/** Upsert rows into dashboard_cache. Replaces all rows for io_filter. */
+async function upsertDashboardCache(ioFilter: string, rows: MonitorDisplayRow[]): Promise<void> {
+  await supabase.from(DASHBOARD_CACHE_TABLE).delete().eq("io_filter", ioFilter);
+
+  if (rows.length === 0) return;
+
+  const toInsert = rows.map((r) => ({
+    io_filter: ioFilter,
+    year_month: r.yearMonth,
+    active_order_count: r.activeOrderCount,
+    booked_impressions: r.sumImpressions,
+    delivered_impressions: r.dataImpressions,
+    delivered_lines: r.deliveredLines,
+    media_cost: r.mediaCost,
+    media_fees: r.mediaFees,
+    celtra_cost: r.celtraCost,
+    total_cost: r.totalCost,
+    booked_revenue: r.bookedRevenue,
+  }));
+
+  await supabase.from(DASHBOARD_CACHE_TABLE).insert(toInsert);
+}
+
+/** Get dashboard data from DB cache. Returns empty if not cached. */
+export async function getDashboardDataFromCache(ioFilter?: string | null): Promise<MonitorDisplayRow[]> {
+  const filterKey = ioFilter?.trim() ?? "";
+  return getDashboardCacheRows(filterKey);
+}
+
+/** Compute fresh data, store in dashboard_cache, and return. Call from Refresh button. */
+export async function refreshAndStoreDashboardData(ioFilter?: string | null): Promise<MonitorDisplayRow[]> {
+  const filterKey = ioFilter?.trim() ?? "";
+  const rows = await computePlacementsWithDspAggregated(filterKey || undefined);
+  if (rows.length > 0) {
+    await upsertDashboardCache(filterKey, rows);
+  }
+  revalidateTag(DASHBOARD_CACHE_TAG, "max");
+  return rows;
+}
+
+/** Internal: aggregate placements + DSP source by month (no cache). */
+async function computePlacementsWithDspAggregated(ioFilter?: string | null): Promise<MonitorDisplayRow[]> {
+  const filterKey = ioFilter?.trim() ?? "";
+  const [placements, dspSource] = await Promise.all([
+    getPlacementsWithIoDsp(filterKey || undefined),
+    getSourceByType("DSP"),
+  ]);
+
+  if (placements.length === 0) return [];
+  if (!dspSource?.id) return [];
+
+  const sourceData = await getSourceDataFull(dspSource.id);
+  if (!sourceData || sourceData.rows.length === 0) return [];
+
+  const ioIds = new Set<string>();
+  for (const p of placements) {
+    const io = String(p.insertion_order_id_dsp ?? "").trim();
+    if (io) ioIds.add(io);
+  }
+
+  const dateCol = findColumn(sourceData.rows[0] as Record<string, unknown>, DATE_COLUMNS);
+  const imprCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IMPRESSIONS_COLUMNS);
+  const mediaCostCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_COST_COLUMNS);
+  const mediaFeesCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_FEES_COLUMNS);
+  const advertiserCol = findColumn(sourceData.rows[0] as Record<string, unknown>, ADVERTISER_COLUMNS);
+  const ioCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IO_SOURCE_COLUMNS);
+
+  if (!dateCol || !imprCol || !mediaCostCol || !ioCol) return [];
+
+  const bookedByIoAndMonth = computeBookedByIoAndMonth(placements);
+
+  const ioToCpmAdops = new Map<string, number>();
+  const ioToCpmCeltra = new Map<string, number>();
+  const ioToOrderIds = new Map<string, Set<string>>();
+  for (const p of placements) {
+    const io = String(p.insertion_order_id_dsp ?? "").trim();
+    if (!io) continue;
+    if (!ioToCpmAdops.has(io)) {
+      ioToCpmAdops.set(io, parseNum(p.cpm_adops));
+    }
+    if (!ioToCpmCeltra.has(io)) {
+      ioToCpmCeltra.set(io, parseNum(p.cpm_celtra));
+    }
+    if (!ioToOrderIds.has(io)) ioToOrderIds.set(io, new Set());
+    ioToOrderIds.get(io)!.add(p.order_id);
+  }
+
+  type IoAgg = { delivered: number; mediaCost: number; mediaFees: number };
+  const byMonthIo = new Map<string, Map<string, IoAgg>>();
+
+  for (const row of sourceData.rows) {
+    const r = row as Record<string, unknown>;
+    const io = getVal(r, ioCol).trim();
+    if (!io || !ioIds.has(io)) continue;
+
+    const dateVal = r[dateCol];
+    const ym = parseYearMonth(dateVal);
+    if (!ym) continue;
+
+    let byIo = byMonthIo.get(ym);
+    if (!byIo) {
+      byIo = new Map();
+      byMonthIo.set(ym, byIo);
+    }
+
+    let agg = byIo.get(io);
+    if (!agg) {
+      agg = { delivered: 0, mediaCost: 0, mediaFees: 0 };
+      byIo.set(io, agg);
+    }
+
+    const rowMediaCost = parseNum(r[mediaCostCol]);
+    agg.delivered += Math.floor(parseNum(r[imprCol]));
+    agg.mediaCost += rowMediaCost;
+    if (mediaFeesCol) {
+      agg.mediaFees += parseNum(r[mediaFeesCol]);
+    } else if (advertiserCol) {
+      const advertiser = getVal(r, advertiserCol).trim();
+      const rate = MEDIA_FEES_BY_ADVERTISER[advertiser];
+      if (rate != null) agg.mediaFees += rowMediaCost * rate;
+    }
+  }
+
+  const allMonths = new Set<string>(byMonthIo.keys());
+  for (const ioMonths of bookedByIoAndMonth.values()) {
+    for (const ym of ioMonths.keys()) allMonths.add(ym);
+  }
+
+  const result: MonitorDisplayRow[] = [];
+
+  for (const ym of Array.from(allMonths).sort()) {
+    const byIo = byMonthIo.get(ym) ?? new Map();
+    let bookedImpr = 0;
+    let deliveredImpr = 0;
+    let mediaCost = 0;
+    let mediaFees = 0;
+    let celtraCost = 0;
+    let bookedRevenue = 0;
+    const ioIdsInMonth = new Set<string>();
+    const orderIdsInMonth = new Set<string>();
+
+    for (const io of ioIds) {
+      const agg = byIo.get(io) ?? { delivered: 0, mediaCost: 0, mediaFees: 0 };
+      const cpmAdops = ioToCpmAdops.get(io) ?? 0;
+      const cpmCeltra = ioToCpmCeltra.get(io) ?? 0;
+      const bookedForIo = bookedByIoAndMonth.get(io)?.get(ym) ?? 0;
+
+      bookedImpr += bookedForIo;
+      deliveredImpr += agg.delivered;
+      mediaCost += agg.mediaCost;
+      mediaFees += agg.mediaFees;
+      celtraCost += (agg.delivered / 1000) * cpmCeltra;
+      bookedRevenue += (bookedForIo / 1000) * cpmAdops;
+      if (agg.delivered > 0 || bookedForIo > 0) {
+        ioIdsInMonth.add(io);
+        for (const oid of ioToOrderIds.get(io) ?? []) orderIdsInMonth.add(oid);
+      }
+    }
+
+    const totalCost = mediaCost + celtraCost;
+
+    result.push({
+      yearMonth: ym,
+      sumImpressions: Math.floor(bookedImpr),
+      activeOrderCount: orderIdsInMonth.size,
+      dataImpressions: Math.floor(deliveredImpr),
+      deliveredLines: ioIdsInMonth.size,
+      mediaCost: Math.round(mediaCost * 100) / 100,
+      mediaFees: Math.round(mediaFees * 100) / 100,
+      celtraCost: Math.round(celtraCost * 100) / 100,
+      totalCost: Math.round(totalCost * 100) / 100,
+      bookedRevenue: Math.round(bookedRevenue * 100) / 100,
+    });
+  }
+
+  return result.sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
+}
+
+/** Aggregate placements + DSP source by month. Returns MonitorDisplayRow[]. Uses Next.js cache for backwards compat. */
 export async function getPlacementsWithDspAggregated(ioFilter?: string | null): Promise<MonitorDisplayRow[]> {
   const filterKey = ioFilter?.trim() ?? "";
   return unstable_cache(
-    async () => {
-      const [placements, dspSource] = await Promise.all([
-        getPlacementsWithIoDsp(filterKey || undefined),
-        getSourceByType("DSP"),
-      ]);
-
-      if (placements.length === 0) return [];
-      if (!dspSource?.id) return [];
-
-      const sourceData = await getSourceDataFull(dspSource.id);
-      if (!sourceData || sourceData.rows.length === 0) return [];
-
-      const ioIds = new Set<string>();
-      for (const p of placements) {
-        const io = String(p.insertion_order_id_dsp ?? "").trim();
-        if (io) ioIds.add(io);
-      }
-
-      const dateCol = findColumn(sourceData.rows[0] as Record<string, unknown>, DATE_COLUMNS);
-      const imprCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IMPRESSIONS_COLUMNS);
-      const mediaCostCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_COST_COLUMNS);
-      const mediaFeesCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_FEES_COLUMNS);
-      const advertiserCol = findColumn(sourceData.rows[0] as Record<string, unknown>, ADVERTISER_COLUMNS);
-      const ioCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IO_SOURCE_COLUMNS);
-
-      if (!dateCol || !imprCol || !mediaCostCol || !ioCol) return [];
-
-      const bookedByIoAndMonth = computeBookedByIoAndMonth(placements);
-
-      const ioToCpmAdops = new Map<string, number>();
-      const ioToCpmCeltra = new Map<string, number>();
-      const ioToOrderIds = new Map<string, Set<string>>();
-      for (const p of placements) {
-        const io = String(p.insertion_order_id_dsp ?? "").trim();
-        if (!io) continue;
-        if (!ioToCpmAdops.has(io)) {
-          ioToCpmAdops.set(io, parseNum(p.cpm_adops));
-        }
-        if (!ioToCpmCeltra.has(io)) {
-          ioToCpmCeltra.set(io, parseNum(p.cpm_celtra));
-        }
-        if (!ioToOrderIds.has(io)) ioToOrderIds.set(io, new Set());
-        ioToOrderIds.get(io)!.add(p.order_id);
-      }
-
-      type IoAgg = { delivered: number; mediaCost: number; mediaFees: number };
-      const byMonthIo = new Map<string, Map<string, IoAgg>>();
-
-      for (const row of sourceData.rows) {
-        const r = row as Record<string, unknown>;
-        const io = getVal(r, ioCol).trim();
-        if (!io || !ioIds.has(io)) continue;
-
-        const dateVal = r[dateCol];
-        const ym = parseYearMonth(dateVal);
-        if (!ym) continue;
-
-        let byIo = byMonthIo.get(ym);
-        if (!byIo) {
-          byIo = new Map();
-          byMonthIo.set(ym, byIo);
-        }
-
-        let agg = byIo.get(io);
-        if (!agg) {
-          agg = { delivered: 0, mediaCost: 0, mediaFees: 0 };
-          byIo.set(io, agg);
-        }
-
-        const rowMediaCost = parseNum(r[mediaCostCol]);
-        agg.delivered += Math.floor(parseNum(r[imprCol]));
-        agg.mediaCost += rowMediaCost;
-        if (mediaFeesCol) {
-          agg.mediaFees += parseNum(r[mediaFeesCol]);
-        } else if (advertiserCol) {
-          const advertiser = getVal(r, advertiserCol).trim();
-          const rate = MEDIA_FEES_BY_ADVERTISER[advertiser];
-          if (rate != null) agg.mediaFees += rowMediaCost * rate;
-        }
-      }
-
-      const allMonths = new Set<string>(byMonthIo.keys());
-      for (const ioMonths of bookedByIoAndMonth.values()) {
-        for (const ym of ioMonths.keys()) allMonths.add(ym);
-      }
-
-      const result: MonitorDisplayRow[] = [];
-
-      for (const ym of Array.from(allMonths).sort()) {
-        const byIo = byMonthIo.get(ym) ?? new Map();
-        let bookedImpr = 0;
-        let deliveredImpr = 0;
-        let mediaCost = 0;
-        let mediaFees = 0;
-        let celtraCost = 0;
-        let bookedRevenue = 0;
-        const ioIdsInMonth = new Set<string>();
-        const orderIdsInMonth = new Set<string>();
-
-        for (const io of ioIds) {
-          const agg = byIo.get(io) ?? { delivered: 0, mediaCost: 0, mediaFees: 0 };
-          const cpmAdops = ioToCpmAdops.get(io) ?? 0;
-          const cpmCeltra = ioToCpmCeltra.get(io) ?? 0;
-          const bookedForIo = bookedByIoAndMonth.get(io)?.get(ym) ?? 0;
-
-          bookedImpr += bookedForIo;
-          deliveredImpr += agg.delivered;
-          mediaCost += agg.mediaCost;
-          mediaFees += agg.mediaFees;
-          celtraCost += (agg.delivered / 1000) * cpmCeltra;
-          bookedRevenue += (bookedForIo / 1000) * cpmAdops;
-          if (agg.delivered > 0 || bookedForIo > 0) {
-            ioIdsInMonth.add(io);
-            for (const oid of ioToOrderIds.get(io) ?? []) orderIdsInMonth.add(oid);
-          }
-        }
-
-        const totalCost = mediaCost + celtraCost;
-
-        result.push({
-          yearMonth: ym,
-          sumImpressions: Math.floor(bookedImpr),
-          activeOrderCount: orderIdsInMonth.size,
-          dataImpressions: Math.floor(deliveredImpr),
-          deliveredLines: ioIdsInMonth.size,
-          mediaCost: Math.round(mediaCost * 100) / 100,
-          mediaFees: Math.round(mediaFees * 100) / 100,
-          celtraCost: Math.round(celtraCost * 100) / 100,
-          totalCost: Math.round(totalCost * 100) / 100,
-          bookedRevenue: Math.round(bookedRevenue * 100) / 100,
-        });
-      }
-
-      return result.sort((a, b) => a.yearMonth.localeCompare(b.yearMonth));
-    },
+    () => computePlacementsWithDspAggregated(filterKey || undefined),
     ["dashboard-placements-dsp", filterKey],
     { tags: [DASHBOARD_CACHE_TAG], revalidate: false }
   )();
