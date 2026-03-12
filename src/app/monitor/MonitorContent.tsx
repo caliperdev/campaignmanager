@@ -573,9 +573,11 @@ export default function MonitorContent({
                       {aggregatedRows.length === 0 ? (
                       <tr>
                         <td colSpan={visibleColumns.length + 1} style={{ ...tdBase, color: "var(--text-secondary)", textAlign: "center" }}>
-                          {ct && dt
-                            ? "No data. Ensure campaign and source have matching Insertion Order ID / GID columns, then Refresh."
-                            : "No data. Add placements with Insertion Order ID - DSP linked to DSP source."}
+                          {forceGlobal
+                            ? "Click Refresh to load dashboard data."
+                            : ct && dt
+                              ? "No data. Ensure campaign and source have matching Insertion Order ID / GID columns, then Refresh."
+                              : "No data. Add placements with Insertion Order ID - DSP linked to DSP source."}
                         </td>
                       </tr>
                     ) : (
