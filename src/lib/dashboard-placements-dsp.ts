@@ -5,7 +5,7 @@
  * Join: placement.insertion_order_id_dsp = DSP.cr4fe_insertionordergid
  */
 import { revalidateTag, unstable_cache } from "next/cache";
-import { supabase, supabaseReadOnly } from "@/db";
+import { supabase } from "@/db";
 import { PLACEMENTS_TABLE } from "@/db/schema";
 import { getSourceByType, getSourceDataFull } from "@/app/test-link/actions";
 import { allocateImpressionsByMonth } from "@/lib/placement-allocator";
@@ -137,9 +137,9 @@ function getVal(row: Record<string, unknown>, col: string): string {
   return v !== undefined && v !== null ? String(v) : "";
 }
 
-/** Fetch placements with insertion_order_id_dsp from placements table. Read-only. */
+/** Fetch placements with insertion_order_id_dsp from placements table. */
 async function getPlacementsWithIoDsp(ioFilter?: string | null): Promise<PlacementRow[]> {
-  let q = supabaseReadOnly
+  let q = supabase
     .from(PLACEMENTS_TABLE)
     .select("order_id, insertion_order_id_dsp, start_date, end_date, impressions, cpm_adops, cpm_celtra, dark_days, per_day_impressions")
     .not("insertion_order_id_dsp", "is", null)
@@ -152,9 +152,9 @@ async function getPlacementsWithIoDsp(ioFilter?: string | null): Promise<Placeme
   return (data ?? []) as PlacementRow[];
 }
 
-/** Fetch distinct insertion_order_id_dsp values for filter dropdown. Read-only. */
+/** Fetch distinct insertion_order_id_dsp values for filter dropdown. */
 export async function getDistinctInsertionOrderIds(): Promise<string[]> {
-  const { data, error } = await supabaseReadOnly
+  const { data, error } = await supabase
     .from(PLACEMENTS_TABLE)
     .select("insertion_order_id_dsp")
     .not("insertion_order_id_dsp", "is", null)
@@ -203,9 +203,9 @@ function computeBookedByIoAndMonth(placements: PlacementRow[]): Map<string, Map<
   return byIoAndMonth;
 }
 
-/** Read cached rows from dashboard_cache. Read-only. */
+/** Read cached rows from dashboard_cache. */
 async function getDashboardCacheRows(ioFilter: string): Promise<MonitorDisplayRow[]> {
-  const { data, error } = await supabaseReadOnly
+  const { data, error } = await supabase
     .from(DASHBOARD_CACHE_TABLE)
     .select("year_month, active_order_count, booked_impressions, delivered_impressions, delivered_lines, media_cost, media_fees, celtra_cost, total_cost, booked_revenue")
     .eq("io_filter", ioFilter)

@@ -8,7 +8,6 @@ import { createRateLimitedFetch } from "@/lib/rate-limit";
  */
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const rateLimitedFetch = createRateLimitedFetch(fetch);
 
@@ -21,21 +20,3 @@ export const supabase = createClient(url, serviceRoleKey, {
     detectSessionInUrl: false,
   },
 });
-
-/**
- * Read-only Supabase client for dashboard data fetches.
- * Uses anon key so it cannot write, update, delete, or drop.
- * Falls back to service role if anon key is not set (read-only not enforced).
- */
-export const supabaseReadOnly = createClient(
-  url,
-  anonKey || serviceRoleKey,
-  {
-    global: { fetch: rateLimitedFetch },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  }
-);

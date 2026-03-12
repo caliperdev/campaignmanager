@@ -6,7 +6,7 @@ import {
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import { getOrComputeMonitorData } from "@/lib/monitor-cache";
 
-function rowsToPayload(rows: { sumImpressions: number; dataImpressions: number; deliveredLines: number; mediaCost: number; mediaFees: number; celtraCost: number; totalCost: number; bookedRevenue: number; activeOrderCount: number }[]): MonitorDataPayload {
+function rowsToPayload(rows: MonitorDataPayload["rows"]): MonitorDataPayload {
   const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
   const totalDataImpressions = rows.reduce((acc, r) => acc + r.dataImpressions, 0);
   const totalDeliveredLines = rows.reduce((acc, r) => acc + r.deliveredLines, 0);
