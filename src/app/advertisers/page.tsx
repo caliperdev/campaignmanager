@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAdvertisers, getCampaigns, getAgencies } from "@/lib/tables";
+import { getAdvertisers, getCampaigns, getAgencies, getCampaignStatusesMap, getCampaignPlacementCountsByStatusMap, type PlacementCountsByStatus } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 import { AdvertiserListRow, AdvertisersTableHeader } from "@/components/AdvertiserListRow";
 import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
@@ -39,7 +39,8 @@ type AdvertiserItem = Advertiser & {
   agencyId: string | null;
   agencyName: string;
   createdAt: string;
-  statusLabel: "Live" | "Ended";
+  statusLabel: "Upcoming" | "Live" | "Ended";
+  placementCountsByStatus?: PlacementCountsByStatus;
 };
 
 export default async function AdvertisersPage({
@@ -58,10 +59,12 @@ export default async function AdvertisersPage({
   const groupBy: GroupBy =
     GROUP_OPTIONS.some((o) => o.value === rawGroupBy) ? (rawGroupBy as GroupBy) : "none";
 
-  const [advertisers, campaigns, agencies] = await Promise.all([
+  const [advertisers, campaigns, agencies, campaignStatusesMap, campaignPlacementCountsByStatusMap] = await Promise.all([
     getAdvertisers(),
     getCampaigns(),
     getAgencies(),
+    getCampaignStatusesMap(),
+    getCampaignPlacementCountsByStatusMap(),
   ]);
   const agencyById = new Map(agencies.map((a) => [a.id, a]));
   const campaignsByAdvertiser = new Map<string, typeof campaigns>();
@@ -78,13 +81,27 @@ export default async function AdvertisersPage({
     const createdAt = advCampaigns.length > 0
       ? advCampaigns.reduce((min, c) => (c.createdAt < min ? c.createdAt : min), advCampaigns[0].createdAt)
       : "";
-    const statusLabel = a.placementCount > 0 ? "Live" : "Ended";
+    const campaignStatuses = advCampaigns.map((c) => campaignStatusesMap.get(c.id) ?? "Ended");
+    const statusLabel = campaignStatuses.some((s) => s === "Live") ? "Live" : campaignStatuses.some((s) => s === "Upcoming") ? "Upcoming" : "Ended";
+    const placementCountsByStatus = advCampaigns.reduce<PlacementCountsByStatus>(
+      (acc, c) => {
+        const counts = campaignPlacementCountsByStatusMap.get(c.id);
+        if (counts) {
+          acc.liveCount += counts.liveCount;
+          acc.upcomingCount += counts.upcomingCount;
+          acc.endedCount += counts.endedCount;
+        }
+        return acc;
+      },
+      { liveCount: 0, upcomingCount: 0, endedCount: 0 }
+    );
     return {
       ...a,
       agencyId,
       agencyName,
       createdAt,
       statusLabel,
+      placementCountsByStatus,
     };
   });
 

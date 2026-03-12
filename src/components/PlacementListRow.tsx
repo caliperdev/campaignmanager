@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ItemRowActions } from "@/components/ItemRowActions";
 import { deletePlacement } from "@/lib/table-actions";
-import { isPlacementActive } from "@/lib/placement-status";
+import { getPlacementStatusLabel, getStatusDotClass } from "@/lib/placement-status";
 
 type Placement = { id: number; name: string; startDate?: string; endDate?: string };
 type Order = { id: string };
@@ -20,7 +20,10 @@ export function PlacementListRow({
   campaignId: string;
   marginLeft?: number;
 }) {
-  const dotActive = isPlacementActive(placement.startDate ?? "", placement.endDate ?? "");
+  const statusLabel = getPlacementStatusLabel({
+    start_date: placement.startDate,
+    end_date: placement.endDate,
+  });
   const router = useRouter();
 
   const handleDelete = async () => {
@@ -48,7 +51,7 @@ export function PlacementListRow({
           minWidth: 0,
         }}
       >
-        <div className={dotActive ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass(statusLabel)} />
         <div className="row-meta">
           <div className="row-primary-text">{placement.name}</div>
           <div className="row-sub-text">Placement</div>

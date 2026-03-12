@@ -37,7 +37,7 @@ const blackTh = { ...thStyle, textAlign: "right" as const, color: "var(--text-pr
 
 const IMPRESSIONS_TABLE_COLUMNS = [
   { id: "month", label: "Month", width: "9%", thStyle: { ...thStyle, textAlign: "left" as const }, tdStyle: tdBase },
-  { id: "campaigns", label: "Campaigns", width: "8%", thStyle: goldTh, tdStyle: goldTd },
+  { id: "placements", label: "Placements", width: "8%", thStyle: goldTh, tdStyle: goldTd },
   { id: "delivLines", label: "Deliv. Lines", width: "8%", thStyle: purpleTh, tdStyle: purpleTd },
   { id: "bookedImpressions", label: "Booked impressions", width: "12%", thStyle: goldTh, tdStyle: goldTd },
   { id: "deliveredImpr", label: "Delivered Impr.", width: "12%", thStyle: purpleTh, tdStyle: purpleTd },
@@ -57,7 +57,7 @@ const defaultColumnOrder: ColumnId[] = IMPRESSIONS_TABLE_COLUMNS.map((c) => c.id
 const defaultColumnVisibility: Record<ColumnId, boolean> = {
   month: true,
   bookedImpressions: true,
-  campaigns: true,
+  placements: true,
   deliveredImpr: true,
   delivLines: true,
   mediaCost: true,
@@ -77,6 +77,8 @@ type MonitorByDimensionRow = {
   activeOrderCount: number;
 };
 
+type AdvertiserOption = { id: string; advertiser: string };
+
 type Props = {
   initialData: MonitorDataPayload;
   ct?: string | null;
@@ -84,7 +86,7 @@ type Props = {
   orderTables: NavItem[];
   dataTables: NavItem[];
   dimensionOptions?: string[];
-  ioOptions?: string[];
+  advertiserOptions?: AdvertiserOption[];
   readOnly?: boolean;
   forceGlobal?: boolean;
 };
@@ -96,7 +98,7 @@ export default function MonitorContent({
   orderTables,
   dataTables,
   dimensionOptions = [],
-  ioOptions = [],
+  advertiserOptions = [],
   readOnly = false,
   forceGlobal = false,
 }: Props) {
@@ -114,6 +116,10 @@ export default function MonitorContent({
   const [timeGroup, setTimeGroup] = useState<"yearMonth" | "quarter" | "year">("yearMonth");
   const [chartMeasureGroup, setChartMeasureGroup] = useState<ChartMeasureGroup>("impressions");
   const [ioFilter, setIoFilter] = useState<string>("");
+  const [advertiserFilter, setAdvertiserFilter] = useState<string>("");
+  const [placementFilter, setPlacementFilter] = useState<string>("");
+  const [ioOptions, setIoOptions] = useState<string[]>([]);
+  const [placementOptions, setPlacementOptions] = useState<{ id: string; label: string }[]>([]);
   const [dimensionColumn, setDimensionColumn] = useState("");
   const [dimensionRows, setDimensionRows] = useState<MonitorByDimensionRow[]>([]);
   const [dimensionLoading, setDimensionLoading] = useState(false);
@@ -125,6 +131,51 @@ export default function MonitorContent({
   useEffect(() => {
     setData(initialData);
   }, [initialData]);
+
+  useEffect(() => {
+    if (forceGlobal) setLoading(false);
+  }, [forceGlobal, setLoading]);
+
+  // Fetch insertion order options when advertiser changes (IOs scoped to that advertiser)
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length) return;
+    const adv = advertiserFilter?.trim() || undefined;
+    fetch(`/api/dashboard-io-options${adv ? `?advertiser=${encodeURIComponent(adv)}` : ""}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((arr) => setIoOptions(Array.isArray(arr) ? arr : []));
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter]);
+
+  // Fetch placement options when advertiser/io changes (placements scoped to that advertiser/io)
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length) return;
+    const adv = advertiserFilter?.trim() || undefined;
+    const io = ioFilter?.trim() || undefined;
+    const params = new URLSearchParams();
+    if (adv) params.set("advertiser", adv);
+    if (io) params.set("io", io);
+    fetch(`/api/dashboard-placement-options?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((arr) => setPlacementOptions(Array.isArray(arr) ? arr : []));
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter, ioFilter]);
+
+  // Refetch dashboard data when filters change so displayed data matches selection
+  const filtersInitialized = useRef(false);
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length) return;
+    if (!filtersInitialized.current) {
+      filtersInitialized.current = true;
+      return;
+    }
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (advertiserFilter) params.set("advertiser", advertiserFilter);
+    if (ioFilter) params.set("io", ioFilter);
+    if (placementFilter) params.set("placement", placementFilter);
+    fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => payload && setData(payload))
+      .finally(() => setLoading(false));
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter, ioFilter, placementFilter, setLoading]);
 
   useEffect(() => {
     if (!columnsOpen || !columnsButtonRef.current) {
@@ -201,18 +252,52 @@ export default function MonitorContent({
   }
 
   async function refreshFromCache() {
+    if (forceGlobal) {
+      const refreshRes = await fetch("/api/dashboard-refresh-all", { method: "POST" });
+      if (!refreshRes.ok) {
+        const body = await refreshRes.json().catch(() => ({}));
+        throw new Error(body?.error ?? "Failed to refresh dashboard cache");
+      }
+    }
     const params = new URLSearchParams();
     if (ct) params.set("ct", ct);
     if (dt) params.set("dt", dt);
-    if (forceGlobal) params.set("refresh", "1");
-    if (forceGlobal && ioFilter) params.set("io", ioFilter);
-    const res = await fetch(`/api/monitor-data?${params.toString()}`);
+    if (forceGlobal) {
+      if (ioFilter) params.set("io", ioFilter);
+      if (advertiserFilter) params.set("advertiser", advertiserFilter);
+      if (placementFilter) params.set("placement", placementFilter);
+    }
+    const res = await fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch monitor data");
     const payload: MonitorDataPayload = await res.json();
     setData(payload);
   }
 
-  const { rows, orderRows, totalUniqueOrderCount, totalImpressions, totalDataImpressions, totalDeliveredLines, totalMediaCost, totalMediaFees, totalCeltraCost, totalTotalCost, totalBookedRevenue } = data;
+  async function refreshSelectionFromCache() {
+    const refreshRes = await fetch("/api/dashboard-refresh-selection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        io: ioFilter || undefined,
+        advertiser: advertiserFilter || undefined,
+        placement: placementFilter || undefined,
+      }),
+    });
+    if (!refreshRes.ok) {
+      const body = await refreshRes.json().catch(() => ({}));
+      throw new Error(body?.error ?? "Failed to refresh selection");
+    }
+    const params = new URLSearchParams();
+    if (ioFilter) params.set("io", ioFilter);
+    if (advertiserFilter) params.set("advertiser", advertiserFilter);
+    if (placementFilter) params.set("placement", placementFilter);
+    const res = await fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch monitor data");
+    const payload: MonitorDataPayload = await res.json();
+    setData(payload);
+  }
+
+  const { rows, orderRows, totalUniqueOrderCount, totalPlacementCount, totalImpressions, totalDataImpressions, totalDeliveredLines, totalMediaCost, totalMediaFees, totalCeltraCost, totalTotalCost, totalBookedRevenue } = data;
 
   const aggregatedRows = useMemo(() => {
     if (timeGroup === "yearMonth") return rows;
@@ -222,10 +307,11 @@ export default function MonitorContent({
       const key = keyFn(r);
       const existing = byKey.get(key);
       if (!existing) {
-        byKey.set(key, { ...r, yearMonth: key });
+        byKey.set(key, { ...r, yearMonth: key, placementCount: r.placementCount ?? r.activeOrderCount ?? 0 });
       } else {
         existing.sumImpressions += r.sumImpressions;
         existing.activeOrderCount += r.activeOrderCount;
+        existing.placementCount = (existing.placementCount ?? 0) + (r.placementCount ?? r.activeOrderCount ?? 0);
         existing.dataImpressions += r.dataImpressions;
         existing.deliveredLines += r.deliveredLines;
         existing.mediaCost += r.mediaCost;
@@ -260,6 +346,7 @@ export default function MonitorContent({
   return (
     <main
       className="main-content"
+      data-dashboard={forceGlobal ? "true" : undefined}
       style={{
         flex: 1,
         minHeight: 0,
@@ -267,26 +354,9 @@ export default function MonitorContent({
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <h1
-            style={{
-              fontSize: "22px",
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.02em",
-              margin: 0,
-            }}
-          >
-            Dashboard
-          </h1>
-          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 8, maxWidth: 520 }}>
-            Placements with Insertion Order ID - DSP joined to DSP source. Booked impressions, delivered impressions, costs, and margin by month.
-          </p>
-          {forceGlobal ? (
-            <p style={{ fontSize: 13, color: "var(--text-tertiary)", marginTop: 16 }}>
-              Viewing all placements with DSP link.
-            </p>
-          ) : (
+        <div className={forceGlobal ? "dashboard-header" : undefined}>
+          <h1>Dashboard</h1>
+          {forceGlobal ? null : (
             <div style={{ marginTop: 16, display: "flex", gap: 24, alignItems: "flex-end", flexWrap: "wrap" }}>
               <MonitorPickers
                 orderTables={orderTables.map((t) => ({ id: t.id, name: t.name }))}
@@ -299,13 +369,24 @@ export default function MonitorContent({
         </div>
         {(forceGlobal || !readOnly) && (
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
-          {forceGlobal && (
-            <Button variant="secondary" onClick={() => setPlacementsModalOpen(true)}>
-              View placements
-            </Button>
-          )}
           {!readOnly && (forceGlobal ? (
-            <RefreshOrderButton onRefreshCached={refreshFromCache} />
+            <>
+              <RefreshOrderButton onRefreshCached={refreshFromCache} />
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    await refreshSelectionFromCache();
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                title="Refresh only the current selection (advertiser, IO, placement) for quick test"
+              >
+                Refresh selection
+              </Button>
+            </>
           ) : (
             <>
               <RefreshOrderButton onRefreshCached={refreshFromCache} />
@@ -319,131 +400,146 @@ export default function MonitorContent({
         )}
       </div>
 
-      <div
-        style={{
-          marginTop: 28,
-          padding: "20px 24px",
-          background: "var(--bg-secondary)",
-          borderRadius: "var(--radius-md)",
-          border: "1px solid var(--border-light)",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>View</span>
-            <div style={{ display: "flex", background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", padding: 2, border: "1px solid var(--border-light)" }}>
-              <button
-                type="button"
-                onClick={() => setMonitorView("time")}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  background: monitorView === "time" ? "var(--accent-dark)" : "transparent",
-                  color: monitorView === "time" ? "white" : "var(--text-secondary)",
-                }}
-              >
-                By time
-              </button>
-              {showDimensionView && (
+      <div className={forceGlobal ? "dashboard-card" : undefined} style={!forceGlobal ? { marginTop: 28, padding: "20px 24px", background: "var(--bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-light)", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" } : undefined}>
+        <div className={forceGlobal ? "dashboard-toolbar" : undefined} style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
+          {!forceGlobal && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>View</span>
+              <div style={{ display: "flex", background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", padding: 2, border: "1px solid var(--border-light)" }}>
                 <button
                   type="button"
-                  onClick={() => setMonitorView("dimension")}
-                  style={{
-                    padding: "8px 14px",
-                    fontSize: 13,
-                    fontWeight: 500,
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    background: monitorView === "dimension" ? "var(--accent-dark)" : "transparent",
-                    color: monitorView === "dimension" ? "white" : "var(--text-secondary)",
-                  }}
+                  onClick={() => setMonitorView("time")}
+                  style={{ padding: "8px 14px", fontSize: 13, fontWeight: 500, border: "none", borderRadius: "6px", cursor: "pointer", background: monitorView === "time" ? "var(--accent-dark)" : "transparent", color: monitorView === "time" ? "white" : "var(--text-secondary)" }}
                 >
-                  By dimension
+                  By time
                 </button>
-              )}
-            </div>
-          </div>
-          {forceGlobal && ioOptions.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Filter</span>
-              <select
-                value={ioFilter}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setIoFilter(v);
-                  setLoading(true);
-                  const params = new URLSearchParams();
-                  if (v) params.set("io", v);
-                  fetch(`/api/monitor-data?${params.toString()}`)
-                    .then((res) => (res.ok ? res.json() : null))
-                    .then((payload) => payload && setData(payload))
-                    .finally(() => setLoading(false));
-                }}
-                style={{
-                  padding: "8px 12px",
-                  fontSize: 13,
-                  border: "1px solid var(--border-light)",
-                  borderRadius: "var(--radius-sm)",
-                  background: "var(--bg-primary)",
-                  color: "var(--text-primary)",
-                  minWidth: 180,
-                }}
-              >
-                <option value="">All insertion orders</option>
-                {ioOptions.map((io) => (
-                  <option key={io} value={io}>{io}</option>
-                ))}
-              </select>
+                {showDimensionView && (
+                  <button
+                    type="button"
+                    onClick={() => setMonitorView("dimension")}
+                    style={{ padding: "8px 14px", fontSize: 13, fontWeight: 500, border: "none", borderRadius: "6px", cursor: "pointer", background: monitorView === "dimension" ? "var(--accent-dark)" : "transparent", color: monitorView === "dimension" ? "white" : "var(--text-secondary)" }}
+                  >
+                    By dimension
+                  </button>
+                )}
+              </div>
             </div>
           )}
-          {monitorView === "time" && (
+          {forceGlobal && advertiserOptions.length > 0 && (
+            <div className="dashboard-toolbar-filters">
+                <div className="dashboard-control-group">
+                  <label htmlFor="advertiser-filter">Advertiser</label>
+                  <select
+                    id="advertiser-filter"
+                    className="dashboard-control"
+                    value={advertiserFilter}
+                    onChange={(e) => {
+                      setAdvertiserFilter(e.target.value);
+                      setIoFilter("");
+                      setPlacementFilter("");
+                    }}
+                  >
+                    <option value="">All advertisers</option>
+                    {advertiserOptions.map((a) => (
+                      <option key={a.id} value={a.id}>{a.advertiser}</option>
+                    ))}
+                  </select>
+                </div>
+                {ioOptions.length > 0 && (
+                  <div className="dashboard-control-group">
+                    <label htmlFor="io-filter">Insertion order</label>
+                    <select
+                      id="io-filter"
+                      className="dashboard-control"
+                      value={ioFilter}
+                      onChange={(e) => {
+                        setIoFilter(e.target.value);
+                        setPlacementFilter("");
+                      }}
+                    >
+                      <option value="">All insertion orders</option>
+                      {ioOptions.map((io) => (
+                        <option key={io} value={io}>{io}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                <div className="dashboard-control-group">
+                  <label htmlFor="placement-filter">Placement ID</label>
+                  <select
+                    id="placement-filter"
+                    className="dashboard-control"
+                    value={placementFilter}
+                    onChange={(e) => setPlacementFilter(e.target.value)}
+                  >
+                    <option value="">All placements</option>
+                    {placementOptions.map((p) => (
+                      <option key={p.id} value={p.id}>{p.id}</option>
+                    ))}
+                  </select>
+                </div>
+            </div>
+          )}
+          {forceGlobal && advertiserOptions.length > 0 && <div className="dashboard-toolbar-divider" />}
+          {(monitorView === "time" || forceGlobal) && (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Group by</span>
-                <select
-                  value={timeGroup}
-                  onChange={(e) => setTimeGroup(e.target.value as "yearMonth" | "quarter" | "year")}
-                  style={{
-                    padding: "8px 12px",
-                    fontSize: 13,
-                    border: "1px solid var(--border-light)",
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg-primary)",
-                    color: "var(--text-primary)",
-                    minWidth: 140,
-                  }}
-                >
-                  <option value="yearMonth">Year‑Month</option>
-                  <option value="quarter">Quarter</option>
-                  <option value="year">Year</option>
-                </select>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Chart</span>
-                <select
-                  value={chartMeasureGroup}
-                  onChange={(e) => setChartMeasureGroup(e.target.value as ChartMeasureGroup)}
-                  style={{
-                    padding: "8px 12px",
-                    fontSize: 13,
-                    border: "1px solid var(--border-light)",
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg-primary)",
-                    color: "var(--text-primary)",
-                    minWidth: 140,
-                  }}
-                >
-                  <option value="impressions">Impressions</option>
-                  <option value="costs">Costs</option>
-                  <option value="margin">Margin</option>
-                </select>
-              </div>
+              {forceGlobal ? (
+                <>
+                  <div className="dashboard-control-group">
+                    <label htmlFor="time-group-select">Group by</label>
+                    <select
+                      id="time-group-select"
+                      className="dashboard-control"
+                      value={timeGroup}
+                      onChange={(e) => setTimeGroup(e.target.value as "yearMonth" | "quarter" | "year")}
+                    >
+                      <option value="yearMonth">Year‑Month</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="year">Year</option>
+                    </select>
+                  </div>
+                  <div className="dashboard-control-group">
+                    <label htmlFor="chart-measure-select">Chart</label>
+                    <select
+                      id="chart-measure-select"
+                      className="dashboard-control"
+                      value={chartMeasureGroup}
+                      onChange={(e) => setChartMeasureGroup(e.target.value as ChartMeasureGroup)}
+                    >
+                      <option value="impressions">Impressions</option>
+                      <option value="costs">Costs</option>
+                      <option value="margin">Margin</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Group by</span>
+                    <select
+                      value={timeGroup}
+                      onChange={(e) => setTimeGroup(e.target.value as "yearMonth" | "quarter" | "year")}
+                      style={{ padding: "8px 12px", fontSize: 13, border: "1px solid var(--border-light)", borderRadius: "var(--radius-sm)", background: "var(--bg-primary)", color: "var(--text-primary)", minWidth: 140 }}
+                    >
+                      <option value="yearMonth">Year‑Month</option>
+                      <option value="quarter">Quarter</option>
+                      <option value="year">Year</option>
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Chart</span>
+                    <select
+                      value={chartMeasureGroup}
+                      onChange={(e) => setChartMeasureGroup(e.target.value as ChartMeasureGroup)}
+                      style={{ padding: "8px 12px", fontSize: 13, border: "1px solid var(--border-light)", borderRadius: "var(--radius-sm)", background: "var(--bg-primary)", color: "var(--text-primary)", minWidth: 140 }}
+                    >
+                      <option value="impressions">Impressions</option>
+                      <option value="costs">Costs</option>
+                      <option value="margin">Margin</option>
+                    </select>
+                  </div>
+                </>
+              )}
             </>
           )}
           {monitorView === "dimension" && showDimensionView && (
@@ -585,7 +681,7 @@ export default function MonitorContent({
                           {visibleColumns.map((col) => {
                             if (col.id === "month") return <td key={col.id} style={col.tdStyle}>{row.yearMonth}</td>;
                             if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{row.sumImpressions.toLocaleString("en-US")}</td>;
-                            if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{row.activeOrderCount}</td>;
+                            if (col.id === "placements") return <td key={col.id} style={col.tdStyle}>{row.placementCount ?? row.activeOrderCount ?? 0}</td>;
                             if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{row.dataImpressions > 0 ? row.dataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
                             if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{row.deliveredLines > 0 ? row.deliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                             if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{row.mediaCost > 0 ? `$${row.mediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
@@ -631,7 +727,7 @@ export default function MonitorContent({
                       {visibleColumns.map((col) => {
                         if (col.id === "month") return <td key={col.id} style={col.tdStyle}>Total</td>;
                         if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{totalImpressions.toLocaleString("en-US")}</td>;
-                        if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{totalUniqueOrderCount}</td>;
+                        if (col.id === "placements") return <td key={col.id} style={col.tdStyle}>{totalPlacementCount ?? totalUniqueOrderCount ?? 0}</td>;
                         if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{totalDataImpressions > 0 ? totalDataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
                         if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{totalDeliveredLines > 0 ? totalDeliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                         if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{totalMediaCost > 0 ? `$${totalMediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;

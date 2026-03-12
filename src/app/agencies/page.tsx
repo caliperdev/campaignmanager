@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAgencies, getAgencyCountsMap } from "@/lib/tables";
+import { getAgencies, getAgencyCountsMap, getCampaigns, getCampaignPlacementCountsByStatusMap, type PlacementCountsByStatus } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 import { AgencyListRow, AgenciesTableHeader } from "@/components/AgencyListRow";
 import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
@@ -47,10 +47,24 @@ export default async function AgenciesPage({
   const groupBy: GroupBy =
     GROUP_OPTIONS.some((o) => o.value === rawGroupBy) ? (rawGroupBy as GroupBy) : "none";
 
-  const [agencies, countsMap] = await Promise.all([
+  const [agencies, countsMap, campaigns, campaignPlacementCountsByStatusMap] = await Promise.all([
     getAgencies(),
     getAgencyCountsMap(),
+    getCampaigns(),
+    getCampaignPlacementCountsByStatusMap(),
   ]);
+  const agencyPlacementCountsByStatusMap = new Map<string, PlacementCountsByStatus>();
+  for (const c of campaigns) {
+    if (!c.agencyId) continue;
+    const existing = agencyPlacementCountsByStatusMap.get(c.agencyId) ?? { liveCount: 0, upcomingCount: 0, endedCount: 0 };
+    const counts = campaignPlacementCountsByStatusMap.get(c.id);
+    if (counts) {
+      existing.liveCount += counts.liveCount;
+      existing.upcomingCount += counts.upcomingCount;
+      existing.endedCount += counts.endedCount;
+    }
+    agencyPlacementCountsByStatusMap.set(c.agencyId, existing);
+  }
   let filteredAgencies = search.trim()
     ? agencies.filter((a) => matchesSearch(search, a.name))
     : agencies;
@@ -235,6 +249,7 @@ export default async function AgenciesPage({
                     key={agency.id}
                     agency={agency}
                     counts={countsMap.get(agency.id)}
+                    placementCountsByStatus={agencyPlacementCountsByStatusMap.get(agency.id)}
                     marginLeft={0}
                   />
                   ))}

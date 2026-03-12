@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getOrders, getCampaigns, getAgencies, getAdvertisers, getOrderPlacementCount, getOrderActivePlacementCount } from "@/lib/tables";
+import { getOrders, getCampaigns, getAgencies, getAdvertisers, getOrderPlacementCount, getOrderActivePlacementCount, getOrderStatusesMap, getOrderPlacementCountsByStatusMap, type PlacementCountsByStatus } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 import { OrderListRow, OrdersTableHeader, type OrderListItem } from "@/components/OrderListRow";
 import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
@@ -55,11 +55,13 @@ export default async function OrdersPage({
   const groupBy: GroupBy =
     GROUP_OPTIONS.some((o) => o.value === rawGroupBy) ? (rawGroupBy as GroupBy) : "none";
 
-  const [orders, campaigns, agencies, advertisers] = await Promise.all([
+  const [orders, campaigns, agencies, advertisers, orderStatusesMap, orderPlacementCountsByStatusMap] = await Promise.all([
     getOrders(),
     getCampaigns(),
     getAgencies(),
     getAdvertisers(),
+    getOrderStatusesMap(),
+    getOrderPlacementCountsByStatusMap(),
   ]);
   const campaignById = new Map(campaigns.map((c) => [c.id, c]));
   const agencyById = new Map(agencies.map((a) => [a.id, a]));
@@ -75,7 +77,8 @@ export default async function OrdersPage({
         getOrderPlacementCount(order),
         getOrderActivePlacementCount(order.id),
       ]);
-      const statusLabel = activePlacementCount > 0 ? "Live" : "Ended";
+      const statusLabel = orderStatusesMap.get(order.id) ?? "Ended";
+      const placementCountsByStatus = orderPlacementCountsByStatusMap.get(order.id);
       return {
         id: order.id,
         name: order.name,
@@ -90,6 +93,7 @@ export default async function OrdersPage({
         placementsCount,
         activePlacementCount,
         documentPath: order.documentPath,
+        placementCountsByStatus,
       };
     }),
   );
@@ -129,7 +133,7 @@ export default async function OrdersPage({
       if (key) ymMap.set(key, formatCreationYearMonth(o.createdAt ?? ""));
     }
     const dims: FilterDimension[] = [
-      { key: "status", label: "Status", options: [{ value: "Live", label: "Live" }, { value: "Ended", label: "Ended" }] },
+      { key: "status", label: "Status", options: [{ value: "Upcoming", label: "Upcoming" }, { value: "Live", label: "Live" }, { value: "Ended", label: "Ended" }] },
     ];
     if (advMap.size) dims.push({ key: "advertiser", label: "Advertiser", options: [...advMap.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([v, l]) => ({ value: v, label: l })) });
     if (agencyMap.size) dims.push({ key: "agency", label: "Agency", options: [...agencyMap.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([v, l]) => ({ value: v, label: l })) });
@@ -172,7 +176,7 @@ export default async function OrdersPage({
       }));
   } else if (groupBy === "status") {
     const byStatus = new Map<string, OrderListItem[]>();
-    const statusOrder: ("Live" | "Ended")[] = ["Live", "Ended"];
+    const statusOrder: ("Upcoming" | "Live" | "Ended")[] = ["Live", "Upcoming", "Ended"];
     for (const o of filteredOrders) {
       const key = o.statusLabel ?? "Ended";
       if (!byStatus.has(key)) byStatus.set(key, []);

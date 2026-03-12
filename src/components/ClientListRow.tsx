@@ -7,6 +7,8 @@ import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateClient, deleteClient } from "@/lib/table-actions";
 import { useConfirm } from "@/components/ConfirmModal";
 import type { ClientCounts } from "@/lib/tables";
+import { getStatusDotClass } from "@/lib/placement-status";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
 
 type Client = { id: string; name: string };
 
@@ -55,7 +57,7 @@ export function ClientsTableHeader() {
   );
 }
 
-export function ClientListRow({ client, counts }: { client: Client; counts?: ClientCounts | null }) {
+export function ClientListRow({ client, counts, placementCountsByStatus }: { client: Client; counts?: ClientCounts | null; placementCountsByStatus?: { liveCount: number; upcomingCount: number; endedCount: number } }) {
   const router = useRouter();
   const { showConfirm } = useConfirm();
   const [showEdit, setShowEdit] = useState(false);
@@ -121,7 +123,7 @@ export function ClientListRow({ client, counts }: { client: Client; counts?: Cli
         onClick={() => router.push(`/clients/${client.id}`)}
         onKeyDown={(e) => e.key === "Enter" && router.push(`/clients/${client.id}`)}
       >
-        <div className={hasActivePlacement ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass(hasActivePlacement ? "Live" : "Ended")} />
         <div className="row-meta">
           <div className="row-primary-text">{client.name}</div>
         </div>
@@ -138,7 +140,7 @@ export function ClientListRow({ client, counts }: { client: Client; counts?: Cli
           <div className="row-primary-text">{counts?.orderCount ?? 0}</div>
         </div>
         <div className="row-meta">
-          <div className="row-primary-text">{counts?.placementCount ?? 0}</div>
+          <PlacementsCountWithStatus total={counts?.placementCount ?? 0} counts={placementCountsByStatus} />
         </div>
         <div className="control-group" onClick={(e) => e.stopPropagation()}>
           <ItemRowActions

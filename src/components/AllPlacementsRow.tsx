@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useConfirm } from "@/components/ConfirmModal";
 import { deletePlacement } from "@/lib/table-actions";
-import { isPlacementActive } from "@/lib/placement-status";
+import { getPlacementStatusLabel, getStatusDotClass } from "@/lib/placement-status";
 import { sanitizeDynamicColumnKey } from "@/lib/dynamic-table-keys";
 import type { DynamicTableRow } from "@/lib/tables";
 
@@ -132,7 +132,7 @@ export function AllPlacementsRow({
   const { showConfirm } = useConfirm();
   const startDate = getRowValue(row, "Start Date");
   const endDate = getRowValue(row, "End Date");
-  const dotActive = isPlacementActive(startDate, endDate);
+  const statusLabel = getPlacementStatusLabel(row as Record<string, unknown>);
   const primaryCol = "Placement ID";
   const primaryValue = getRowValue(row, primaryCol) || getRowValue(row, "Placement") || getRowValue(row, "placement_id") || "—";
   const editHref = `/campaigns/${encodeURIComponent(campaignUuid)}/orders/${encodeURIComponent(order.id)}/placements/${row.id}/edit`;
@@ -158,7 +158,7 @@ export function AllPlacementsRow({
       onClick={() => router.push(editHref)}
       onKeyDown={(e) => e.key === "Enter" && router.push(editHref)}
     >
-      <div className={dotActive ? "status-dot" : "status-dot paused"} />
+      <div className={getStatusDotClass(statusLabel)} />
       <div className="row-meta">
         <div className="row-primary-text">{primaryValue}</div>
       </div>

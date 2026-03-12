@@ -116,6 +116,7 @@ export default async function EditPlacementPage({
           returnPath={`/campaigns/${campaignId}/orders/${orderId}`}
           initialRow={enrichedPlacementRow}
           orderName={order.name}
+          orderDocumentPath={order.documentPath ?? null}
           campaignDisplayId={displayCampaignId}
           orderAgencyName={agency?.name}
           orderAdvertiser={advertiser?.advertiser ?? undefined}

@@ -14,6 +14,8 @@ import {
   type AssignedRange,
 } from "@/lib/placement-allocator";
 import { sanitizeDynamicColumnKey } from "@/lib/dynamic-table-keys";
+import { PdfViewPane } from "@/components/PdfViewPane";
+import { getOrderDocumentUrl } from "@/lib/order-document-url";
 
 const PLACEMENT_FIELDS = [
   "Placement ID",
@@ -93,6 +95,7 @@ type Props = {
   returnPath: string;
   initialRow: Record<string, unknown>;
   orderName: string;
+  orderDocumentPath?: string | null;
   campaignDisplayId: string;
   orderAgencyName?: string;
   orderAdvertiser?: string;
@@ -110,6 +113,7 @@ export function EditPlacementForm({
   returnPath,
   initialRow,
   orderName,
+  orderDocumentPath = null,
   campaignDisplayId,
   orderAgencyName,
   orderAdvertiser,
@@ -190,6 +194,7 @@ export function EditPlacementForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
+  const [showPdfPane, setShowPdfPane] = useState(false);
 
   const updatePlacement = (field: (typeof PLACEMENT_FIELDS)[number], value: string) => {
     setFieldErrors((prev) => {
@@ -312,6 +317,7 @@ export function EditPlacementForm({
   const errorHintStyle = { fontSize: 12, color: "#dc2626", marginTop: 4 };
 
   return (
+    <>
     <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {error && !fieldErrors.size && (
         <div style={{ padding: "12px 16px", background: "rgba(220, 53, 69, 0.1)", border: "1px solid rgba(220, 53, 69, 0.3)", borderRadius: "var(--radius-sm)", color: "var(--text-primary)", fontSize: 14 }}>
@@ -325,7 +331,25 @@ export function EditPlacementForm({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
             <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Order #</span>
-            <input type="text" value={orderName} readOnly style={readOnlyStyle} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="text" value={orderName} readOnly style={{ ...readOnlyStyle, flex: 1 }} />
+              <button
+                type="button"
+                onClick={() => setShowPdfPane(true)}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-secondary)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                View PDF
+              </button>
+            </div>
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
             <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Campaign ID</span>
@@ -661,5 +685,12 @@ export function EditPlacementForm({
         </Link>
       </div>
     </form>
+    <PdfViewPane
+      isOpen={showPdfPane}
+      onClose={() => setShowPdfPane(false)}
+      pdfUrl={getOrderDocumentUrl(orderDocumentPath ?? undefined)}
+      title="IO PDF"
+    />
+    </>
   );
 }

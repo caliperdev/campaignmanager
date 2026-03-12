@@ -6,6 +6,8 @@ import { useState, useEffect } from "react";
 import { insertPlacementsBatch } from "@/lib/table-actions";
 import { darkRangesToDarkDays, assignedRangesToPerDay, type DarkRange, type AssignedRange } from "@/lib/placement-allocator";
 import { PlacementAllocator } from "@/components/PlacementAllocator";
+import { PdfViewPane } from "@/components/PdfViewPane";
+import { getOrderDocumentUrl } from "@/lib/order-document-url";
 import { CampaignPicker } from "@/components/CampaignPicker";
 import type { DateRange } from "react-day-picker";
 
@@ -109,6 +111,8 @@ type Props = {
   defaultOrderCampaign?: string;
   defaultOrderCampaignId?: string;
   returnPath?: string;
+  /** Order document path for IO PDF. */
+  orderDocumentPath?: string | null;
   /** Agency name from the order (placement inherits from order). */
   orderAgencyName?: string;
   /** Advertiser from the order (placement inherits from order). */
@@ -128,6 +132,7 @@ export function NewPlacementForm({
   defaultOrderCampaign,
   defaultOrderCampaignId,
   returnPath,
+  orderDocumentPath = null,
   orderAgencyName,
   orderAdvertiser,
   orderName,
@@ -231,6 +236,7 @@ export function NewPlacementForm({
   };
 
   const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set());
+  const [showPdfPane, setShowPdfPane] = useState(false);
 
   const getValidationErrors = (): string[] => {
     const errors: string[] = [];
@@ -328,12 +334,39 @@ export function NewPlacementForm({
   const errorHintStyle = { fontSize: 12, color: "#dc2626", marginTop: 4 };
 
   return (
+    <>
     <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 24, width: "100%", minWidth: 0 }}>
       {error && !fieldErrors.size && (
         <div style={{ padding: "12px 16px", background: "rgba(220, 53, 69, 0.1)", border: "1px solid rgba(220, 53, 69, 0.3)", borderRadius: "var(--radius-sm)", color: "var(--text-primary)", fontSize: 14 }}>
           {error}
         </div>
       )}
+      <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>Order</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end", maxWidth: 400 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
+            <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Order #</span>
+            <input type="text" value={orderName ?? ""} readOnly style={{ padding: "8px 10px", fontSize: 14, border: "1px solid var(--border-light)", borderRadius: "var(--radius-sm)", background: "var(--bg-secondary)", color: "var(--text-primary)" }} />
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowPdfPane(true)}
+            style={{
+              padding: "8px 12px",
+              fontSize: 13,
+              border: "1px solid var(--border-light)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg-secondary)",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              height: 40,
+            }}
+          >
+            View PDF
+          </button>
+        </div>
+      </section>
       <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, alignItems: "end" }}>
         {campaigns.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -751,5 +784,12 @@ export function NewPlacementForm({
         </Link>
       </div>
     </form>
+    <PdfViewPane
+      isOpen={showPdfPane}
+      onClose={() => setShowPdfPane(false)}
+      pdfUrl={getOrderDocumentUrl(orderDocumentPath ?? undefined)}
+      title="IO PDF"
+    />
+    </>
   );
 }

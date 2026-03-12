@@ -9,7 +9,7 @@ import { fetchDataverseSourceChunkFirst, fetchDataverseSourceChunkNext } from "@
 import type { Order, Source } from "@/db/schema";
 import type { DynamicTableRow } from "@/lib/tables";
 import { sanitizeDynamicColumnKey } from "@/lib/dynamic-table-keys";
-import { isPlacementActive } from "@/lib/placement-status";
+import { getPlacementStatusLabel, getStatusDotClass } from "@/lib/placement-status";
 
 const SOURCES_PAGE_SIZE = 200;
 const SORT_REFETCH_LIMIT = 5000;
@@ -489,14 +489,12 @@ export function TableView({
               const placementEditHref = orderId && campaignId
                 ? `/campaigns/${encodeURIComponent(campaignId)}/orders/${encodeURIComponent(orderId)}/placements/${row.id}/edit`
                 : null;
-              const startDate = getRowValue(row, "Start Date");
-              const endDate = getRowValue(row, "End Date");
-              const dotActive = isCampaignPlacementsView
-                ? isPlacementActive(startDate, endDate)
-                : true; // default green when not placement view
+              const statusLabel = isCampaignPlacementsView
+                ? getPlacementStatusLabel(row as Record<string, unknown>)
+                : "Live";
               const rowContent = (
                 <>
-                <div className={dotActive ? "status-dot" : "status-dot paused"} />
+                <div className={getStatusDotClass(statusLabel)} />
                 <div className="row-meta">
                   <div className="row-primary-text">{getRowValue(row, effectivePrimaryCol) || "—"}</div>
                   <div className="row-sub-text">{rowSubLabel}</div>

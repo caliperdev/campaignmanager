@@ -7,6 +7,10 @@ import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateOrder, deleteOrder } from "@/lib/table-actions";
 import { PdfViewPane } from "@/components/PdfViewPane";
 import { getOrderDocumentUrl } from "@/lib/order-document-url";
+import { getStatusDotClass } from "@/lib/placement-status";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
+
+import type { PlacementCountsByStatus } from "@/lib/tables";
 
 export type OrderListItem = {
   id: string;
@@ -18,10 +22,11 @@ export type OrderListItem = {
   agencyId?: string | null;
   agencyName?: string;
   createdAt?: string;
-  statusLabel?: string;
+  statusLabel?: "Upcoming" | "Live" | "Ended";
   placementsCount?: number;
   activePlacementCount?: number;
   documentPath?: string | null;
+  placementCountsByStatus?: PlacementCountsByStatus;
 };
 
 type OrderListRowProps = { order: OrderListItem; marginLeft?: number };
@@ -116,7 +121,7 @@ export function OrderListRow({ order, marginLeft }: OrderListRowProps) {
         onClick={() => router.push(`/orders/${order.id}`)}
         onKeyDown={(e) => e.key === "Enter" && router.push(`/orders/${order.id}`)}
       >
-        <div className={(order.activePlacementCount ?? 0) > 0 ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass(order.statusLabel)} />
         <div className="row-meta">
           <div className="row-primary-text">{order.name}</div>
         </div>
@@ -135,7 +140,7 @@ export function OrderListRow({ order, marginLeft }: OrderListRowProps) {
           <div className="row-primary-text">{order.campaignName ?? "—"}</div>
         </div>
         <div className="row-meta">
-          <div className="row-primary-text">{order.placementsCount ?? 0}</div>
+          <PlacementsCountWithStatus total={order.placementsCount ?? 0} counts={order.placementCountsByStatus} />
         </div>
         <div className="control-group" onClick={(e) => e.stopPropagation()}>
           <ItemRowActions

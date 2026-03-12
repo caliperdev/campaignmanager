@@ -110,6 +110,7 @@ export default async function NewCampaignOrderPlacementPage({
           defaultOrderCampaign={displayCampaignId}
           defaultOrderCampaignId={decodedCampaignId}
           returnPath={`/campaigns/${campaignId}/orders/${orderId}`}
+          orderDocumentPath={order.documentPath ?? null}
           orderAgencyName={agency?.name}
           orderAdvertiser={advertiser?.advertiser ?? undefined}
           orderName={order.name}

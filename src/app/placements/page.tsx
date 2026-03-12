@@ -45,7 +45,7 @@ type FlatItem = {
   advertiserName: string;
   agencyName: string;
   orderCreatedAt: string;
-  statusLabel: "Live" | "Ended" | "Unknown";
+  statusLabel: "Upcoming" | "Live" | "Ended" | "Unknown";
 };
 
 const SORT_COLUMNS = [
@@ -225,7 +225,7 @@ export default async function PlacementsPage({
   filteredFlat = applyFilter(filteredFlat);
 
   const filterDimensions: FilterDimension[] = (() => {
-    const statusOpts = ["Live", "Ended", "Unknown"] as const;
+    const statusOpts = ["Upcoming", "Live", "Ended", "Unknown"] as const;
     const statusOptions = statusOpts.filter((s) => flat.some((i) => i.statusLabel === s));
     const advMap = new Map<string, string>();
     const agencySet = new Set<string>();
@@ -334,7 +334,7 @@ export default async function PlacementsPage({
       .map(([key, items]) => ({ key, label: formatCreationYearMonth(items[0]!.orderCreatedAt), items }));
   } else if (groupBy === "status") {
     const byStatus = new Map<string, FlatItem[]>();
-    const order: ("Live" | "Ended" | "Unknown")[] = ["Live", "Ended", "Unknown"];
+    const order: ("Upcoming" | "Live" | "Ended" | "Unknown")[] = ["Live", "Upcoming", "Ended", "Unknown"];
     for (const item of filteredFlat) {
       const key = item.statusLabel;
       if (!byStatus.has(key)) byStatus.set(key, []);

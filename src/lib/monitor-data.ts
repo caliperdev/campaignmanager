@@ -15,6 +15,8 @@ export type MonitorDisplayRow = {
   celtraCost: number;
   totalCost: number;
   bookedRevenue: number;
+  /** Placement count for dashboard (takes precedence over activeOrderCount when present). */
+  placementCount?: number;
 };
 
 /** Map DB monitor rows to display shape. */
@@ -46,4 +48,6 @@ export type MonitorDataPayload = {
   totalCeltraCost: number;
   totalTotalCost: number;
   totalBookedRevenue: number;
+  /** Placement count for dashboard (takes precedence over totalUniqueOrderCount when present). */
+  totalPlacementCount?: number;
 };

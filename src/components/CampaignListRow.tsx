@@ -9,6 +9,8 @@ import { AdvertiserPicker } from "@/components/AdvertiserPicker";
 import { AgencyPicker } from "@/components/AgencyPicker";
 import { ClientPicker } from "@/components/ClientPicker";
 import type { CampaignListItem } from "@/app/campaigns/page";
+import { getStatusDotClass } from "@/lib/placement-status";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
 import type { Advertiser, Agency, Client } from "@/db/schema";
 
 const editModalStyle = {
@@ -128,7 +130,7 @@ export function CampaignListRow({
         onClick={() => router.push(`/campaigns/${campaign.id}`)}
         onKeyDown={(e) => e.key === "Enter" && router.push(`/campaigns/${campaign.id}`)}
       >
-        <div className={(campaign.activePlacementCount ?? 0) > 0 ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass(campaign.statusLabel)} />
         <div className="row-meta">
           <div className="row-primary-text">{displayName}</div>
         </div>
@@ -147,7 +149,7 @@ export function CampaignListRow({
           <div className="row-primary-text">{campaign.ordersCount ?? 0}</div>
         </div>
         <div className="row-meta">
-          <div className="row-primary-text">{campaign.placementsCount ?? 0}</div>
+          <PlacementsCountWithStatus total={campaign.placementsCount ?? 0} counts={campaign.placementCountsByStatus} />
         </div>
         <div className="control-group" onClick={(e) => e.stopPropagation()}>
           <ItemRowActions

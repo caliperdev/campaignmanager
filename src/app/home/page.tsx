@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { getOrders, getAgencies, getAdvertisers, getClients, getSources, getCampaigns, getOrderPlacementCount, isHierarchyMigrationApplied } from "@/lib/tables";
+import { getOrders, getAgencies, getAdvertisers, getClients, getSources, getCampaigns, getOrderPlacementCount, getOrderPlacementCountsByStatusMap, isHierarchyMigrationApplied } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
 
 export const metadata = {
   title: "Home",
@@ -20,8 +21,19 @@ export default async function HomePage() {
   ]);
   const totalCampaigns = campaigns.length;
 
-  const placementCounts = await Promise.all(orders.map((o) => getOrderPlacementCount(o)));
+  const [placementCounts, orderPlacementCountsByStatusMap] = await Promise.all([
+    Promise.all(orders.map((o) => getOrderPlacementCount(o))),
+    getOrderPlacementCountsByStatusMap(),
+  ]);
   const totalPlacements = placementCounts.reduce((sum, n) => sum + n, 0);
+  const placementCountsByStatus = Array.from(orderPlacementCountsByStatusMap.values()).reduce(
+    (acc, c) => ({
+      liveCount: acc.liveCount + c.liveCount,
+      upcomingCount: acc.upcomingCount + c.upcomingCount,
+      endedCount: acc.endedCount + c.endedCount,
+    }),
+    { liveCount: 0, upcomingCount: 0, endedCount: 0 }
+  );
 
   const showMigrationHint = !migrationApplied && agencies.length > 0;
 
@@ -230,7 +242,7 @@ export default async function HomePage() {
             </div>
           </div>
           <div>
-            <div className="metric-value">{totalPlacements}</div>
+            <PlacementsCountWithStatus total={totalPlacements} counts={placementCountsByStatus} totalClassName="metric-value" />
             <div className="metric-label">Placements</div>
           </div>
         </Link>

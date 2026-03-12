@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getClients, getClientCountsMap } from "@/lib/tables";
+import { getClients, getClientCountsMap, getCampaigns, getCampaignPlacementCountsByStatusMap, type PlacementCountsByStatus } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 import { ClientListRow, ClientsTableHeader } from "@/components/ClientListRow";
 import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
@@ -49,10 +49,24 @@ export default async function ClientsPage({
   const groupBy: GroupBy =
     GROUP_OPTIONS.some((o) => o.value === rawGroupBy) ? (rawGroupBy as GroupBy) : "none";
 
-  const [clients, countsMap] = await Promise.all([
+  const [clients, countsMap, campaigns, campaignPlacementCountsByStatusMap] = await Promise.all([
     getClients(),
     getClientCountsMap(),
+    getCampaigns(),
+    getCampaignPlacementCountsByStatusMap(),
   ]);
+  const clientPlacementCountsByStatusMap = new Map<string, PlacementCountsByStatus>();
+  for (const c of campaigns) {
+    if (!c.clientId) continue;
+    const existing = clientPlacementCountsByStatusMap.get(c.clientId) ?? { liveCount: 0, upcomingCount: 0, endedCount: 0 };
+    const counts = campaignPlacementCountsByStatusMap.get(c.id);
+    if (counts) {
+      existing.liveCount += counts.liveCount;
+      existing.upcomingCount += counts.upcomingCount;
+      existing.endedCount += counts.endedCount;
+    }
+    clientPlacementCountsByStatusMap.set(c.clientId, existing);
+  }
   let filtered = search.trim()
     ? clients.filter((c) => matchesSearch(search, c.name))
     : clients;
@@ -229,7 +243,7 @@ export default async function ClientsPage({
                 <div className="table-grid table-grid--clients" style={{ marginLeft: groupBy === "none" ? 0 : 12 }}>
                   <ClientsTableHeader />
                   {groupClients.map((client) => (
-                    <ClientListRow key={client.id} client={client} counts={countsMap.get(client.id)} />
+                    <ClientListRow key={client.id} client={client} counts={countsMap.get(client.id)} placementCountsByStatus={clientPlacementCountsByStatusMap.get(client.id)} />
                   ))}
                 </div>
               </div>

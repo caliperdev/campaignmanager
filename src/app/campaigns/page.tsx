@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCampaigns, getAgencies, getAdvertisers, getClients, getOrdersForCampaign, getCampaignCountsMap } from "@/lib/tables";
+import { getCampaigns, getAgencies, getAdvertisers, getClients, getOrdersForCampaign, getCampaignCountsMap, getCampaignStatusesMap, getCampaignPlacementCountsByStatusMap, type PlacementCountsByStatus } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 import { CampaignListRow, CampaignsTableHeader } from "@/components/CampaignListRow";
 import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
@@ -51,7 +51,8 @@ export type CampaignListItem = {
   ordersCount: number;
   placementsCount: number;
   activePlacementCount: number;
-  statusLabel: "Live" | "Ended";
+  statusLabel: "Upcoming" | "Live" | "Ended";
+  placementCountsByStatus?: PlacementCountsByStatus;
 };
 
 export default async function CampaignsPage({
@@ -72,12 +73,14 @@ export default async function CampaignsPage({
   const groupBy: GroupBy =
     GROUP_OPTIONS.some((o) => o.value === rawGroupBy) ? (rawGroupBy as GroupBy) : "none";
 
-  const [campaigns, agencies, advertisers, clients, campaignCountsMap] = await Promise.all([
+  const [campaigns, agencies, advertisers, clients, campaignCountsMap, campaignStatusesMap, campaignPlacementCountsByStatusMap] = await Promise.all([
     getCampaigns(),
     getAgencies(),
     getAdvertisers(),
     getClients(),
     getCampaignCountsMap(),
+    getCampaignStatusesMap(),
+    getCampaignPlacementCountsByStatusMap(),
   ]);
   const agenciesFiltered = agencies.filter((a) => a.name !== "No agency");
   const clientsFiltered = clients.filter((c) => c.name !== "No client");
@@ -94,7 +97,8 @@ export default async function CampaignsPage({
       const agency = c.agencyId ? agencyById.get(c.agencyId) : null;
       const clientName = c.clientId ? (clientById.get(c.clientId) ?? "—") : "—";
       const activePlacementCount = campaignCountsMap.get(c.id) ?? 0;
-      const statusLabel = activePlacementCount > 0 ? "Live" : "Ended";
+      const statusLabel = campaignStatusesMap.get(c.id) ?? "Ended";
+      const placementCountsByStatus = campaignPlacementCountsByStatusMap.get(c.id);
       return {
         id: c.id,
         name: c.name,
@@ -110,6 +114,7 @@ export default async function CampaignsPage({
         placementsCount,
         activePlacementCount,
         statusLabel,
+        placementCountsByStatus,
       };
     }),
   );
@@ -151,7 +156,7 @@ export default async function CampaignsPage({
       if (key) ymMap.set(key, formatCreationYearMonth(i.createdAt ?? ""));
     }
     const dims: FilterDimension[] = [
-      { key: "status", label: "Status", options: [{ value: "Live", label: "Live" }, { value: "Ended", label: "Ended" }] },
+      { key: "status", label: "Status", options: [{ value: "Upcoming", label: "Upcoming" }, { value: "Live", label: "Live" }, { value: "Ended", label: "Ended" }] },
     ];
     if (clientMap.size) dims.push({ key: "client", label: "Client", options: [...clientMap.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([v, l]) => ({ value: v, label: l })) });
     if (advMap.size) dims.push({ key: "advertiser", label: "Advertiser", options: [...advMap.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([v, l]) => ({ value: v, label: l })) });
@@ -205,7 +210,7 @@ export default async function CampaignsPage({
       .map(([key, list]) => ({ key, label: list[0]?.advertiserName ?? "—", items: list }));
   } else if (groupBy === "status") {
     const byStatus = new Map<string, CampaignListItem[]>();
-    const statusOrder: ("Live" | "Ended")[] = ["Live", "Ended"];
+    const statusOrder: ("Upcoming" | "Live" | "Ended")[] = ["Live", "Upcoming", "Ended"];
     for (const item of items) {
       const key = item.statusLabel;
       if (!byStatus.has(key)) byStatus.set(key, []);

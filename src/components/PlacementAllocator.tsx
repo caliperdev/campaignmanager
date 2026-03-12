@@ -486,6 +486,32 @@ export function PlacementAllocator({
         </p>
       )}
       {hasValidRange && (() => {
+        const goal = parseInt(String(impressions || "0").replace(/[$,\s]/g, ""), 10) || 0;
+        const assignedSum = Object.values(perDayImpressions).reduce((a, v) => a + v, 0);
+        const showAbove = goal > 0 && assignedSum > goal;
+        const showBelow = goal > 0 && assignedSum > 0 && assignedSum < goal;
+        if (showAbove || showBelow) {
+          return (
+            <p
+              style={{
+                fontSize: 12,
+                margin: "8px 0 0",
+                padding: "6px 10px",
+                borderRadius: "var(--radius-sm)",
+                background: showAbove ? "#fef2f2" : "#fffbeb",
+                color: showAbove ? "#b91c1c" : "#b45309",
+                border: `1px solid ${showAbove ? "#fecaca" : "#fde68a"}`,
+              }}
+            >
+              {showAbove
+                ? `Assigned ${assignedSum.toLocaleString()} is above goal ${goal.toLocaleString()}`
+                : `Assigned ${assignedSum.toLocaleString()} is below goal ${goal.toLocaleString()}`}
+            </p>
+          );
+        }
+        return null;
+      })()}
+      {hasValidRange && (() => {
         const totalImpressions = parseInt(String(impressions || "0").replace(/[$,\s]/g, ""), 10) || 0;
         const flightDayStrs = flightRange?.from && flightRange?.to ? getDatesInRange(flightRange.from, flightRange.to) : [];
         const allocatableStrs = flightDayStrs.filter((d) => !darkDays.includes(d));

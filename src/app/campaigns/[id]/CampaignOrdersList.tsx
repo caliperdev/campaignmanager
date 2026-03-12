@@ -7,6 +7,7 @@ import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateOrder, deleteOrder } from "@/lib/table-actions";
 import { PdfViewPane } from "@/components/PdfViewPane";
 import { getOrderDocumentUrl } from "@/lib/order-document-url";
+import { getStatusDotClass } from "@/lib/placement-status";
 import type { Campaign, Advertiser } from "@/db/schema";
 
 type OrderGroup = { id: string; name: string; count?: number; activePlacementCount?: number; createdAt: string; documentPath?: string | null };
@@ -147,7 +148,7 @@ export function CampaignOrdersList({
                     minWidth: 0,
                   }}
                 >
-                  <div className={(og.activePlacementCount ?? 0) > 0 ? "status-dot" : "status-dot paused"} />
+                  <div className={getStatusDotClass((og.activePlacementCount ?? 0) > 0 ? "Live" : "Ended")} />
                   <div className="row-meta">
                     <div className="row-primary-text">{og.name}</div>
                     <div className="row-sub-text">Order</div>

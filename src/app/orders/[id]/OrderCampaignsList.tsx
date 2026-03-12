@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateCampaign, deleteCampaign } from "@/lib/table-actions";
 import type { Order } from "@/db/schema";
+import { getStatusDotClass } from "@/lib/placement-status";
 
 type CampaignGroup = { id: string; name: string; externalId?: string | null; count: number };
 
@@ -123,7 +124,7 @@ export function OrderCampaignsList({
                 className="campaign-row"
                 style={{ textDecoration: "none", color: "inherit" }}
               >
-                <div className="status-dot" />
+                <div className={getStatusDotClass("Ended")} />
                 <div className="row-meta">
                   <div className="row-primary-text">{cg.externalId?.trim() || cg.name || "—"}</div>
                   <div className="row-sub-text">Campaign ID</div>

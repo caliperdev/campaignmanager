@@ -7,6 +7,8 @@ import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateAdvertiser, deleteAdvertiser } from "@/lib/table-actions";
 import { useConfirm } from "@/components/ConfirmModal";
 import type { Advertiser } from "@/db/schema";
+import { getStatusDotClass } from "@/lib/placement-status";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
 
 const ADVERTISER_DELETE_WARNING =
   "This will permanently delete the advertiser and all associated campaigns, orders, placements, and their data. This cannot be undone.";
@@ -55,7 +57,7 @@ export function AdvertiserListRow({
   advertiser,
   marginLeft,
 }: {
-  advertiser: Advertiser;
+  advertiser: Advertiser & { statusLabel?: "Upcoming" | "Live" | "Ended"; placementCountsByStatus?: { liveCount: number; upcomingCount: number; endedCount: number } };
   marginLeft?: number;
 }) {
   const router = useRouter();
@@ -121,7 +123,7 @@ export function AdvertiserListRow({
         onClick={() => router.push(`/advertisers/${advertiser.id}`)}
         onKeyDown={(e) => e.key === "Enter" && router.push(`/advertisers/${advertiser.id}`)}
       >
-        <div className={(advertiser.activePlacementCount ?? 0) > 0 ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass(advertiser.statusLabel ?? ((advertiser.activePlacementCount ?? 0) > 0 ? "Live" : "Ended"))} />
         <div className="row-meta">
           <div className="row-primary-text">{advertiser.advertiser}</div>
         </div>
@@ -132,7 +134,7 @@ export function AdvertiserListRow({
           <div className="row-primary-text">{advertiser.campaignCount}</div>
         </div>
         <div className="row-meta">
-          <div className="row-primary-text">{advertiser.placementCount}</div>
+          <PlacementsCountWithStatus total={advertiser.placementCount} counts={advertiser.placementCountsByStatus} />
         </div>
         <div className="control-group" onClick={(e) => e.stopPropagation()}>
           <ItemRowActions

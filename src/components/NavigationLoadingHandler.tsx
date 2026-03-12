@@ -49,8 +49,10 @@ export function NavigationLoadingHandler() {
     const route = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
     if (prevRoute.current !== route) {
       prevRoute.current = route;
-      const t = setTimeout(() => setLoading(false), 150);
-      return () => clearTimeout(t);
+      if (pathname !== "/dashboard") {
+        const t = setTimeout(() => setLoading(false), 150);
+        return () => clearTimeout(t);
+      }
     }
   }, [pathname, searchParams, setLoading]);
 

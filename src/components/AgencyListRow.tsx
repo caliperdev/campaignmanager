@@ -6,6 +6,8 @@ import { ItemRowActions } from "@/components/ItemRowActions";
 import { updateAgency, deleteAgency } from "@/lib/table-actions";
 import { useConfirm } from "@/components/ConfirmModal";
 import type { AgencyCounts } from "@/lib/tables";
+import { getStatusDotClass } from "@/lib/placement-status";
+import { PlacementsCountWithStatus } from "@/components/PlacementsCountWithStatus";
 
 type Agency = { id: string; name: string };
 
@@ -56,10 +58,12 @@ export function AgenciesTableHeader({ marginLeft = 0 }: { marginLeft?: number })
 export function AgencyListRow({
   agency,
   counts,
+  placementCountsByStatus,
   marginLeft,
 }: {
   agency: Agency;
   counts?: AgencyCounts | null;
+  placementCountsByStatus?: { liveCount: number; upcomingCount: number; endedCount: number };
   marginLeft?: number;
 }) {
   const router = useRouter();
@@ -125,7 +129,7 @@ export function AgencyListRow({
         onClick={() => router.push(`/agencies/${agency.id}`)}
         onKeyDown={(e) => e.key === "Enter" && router.push(`/agencies/${agency.id}`)}
       >
-        <div className={(counts?.activePlacementCount ?? 0) > 0 ? "status-dot" : "status-dot paused"} />
+        <div className={getStatusDotClass((counts?.activePlacementCount ?? 0) > 0 ? "Live" : "Ended")} />
         <div className="row-meta">
           <div className="row-primary-text">{agency.name}</div>
         </div>
@@ -139,7 +143,7 @@ export function AgencyListRow({
           <div className="row-primary-text">{counts?.campaignCount ?? 0}</div>
         </div>
         <div className="row-meta">
-          <div className="row-primary-text">{counts?.placementCount ?? 0}</div>
+          <PlacementsCountWithStatus total={counts?.placementCount ?? 0} counts={placementCountsByStatus} />
         </div>
         <div className="control-group" onClick={(e) => e.stopPropagation()}>
           <ItemRowActions

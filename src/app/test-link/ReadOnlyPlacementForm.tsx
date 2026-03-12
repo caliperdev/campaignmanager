@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { ReadOnlyAllocatorSection } from "./ReadOnlyAllocatorSection";
+import { PdfViewPane } from "@/components/PdfViewPane";
+import { getOrderDocumentUrl } from "@/lib/order-document-url";
 import { sanitizeDynamicColumnKey } from "@/lib/dynamic-table-keys";
 import { darkDaysToDarkRanges, perDayToAssignedRanges } from "@/lib/placement-allocator";
 import type { DarkRange, AssignedRange } from "@/lib/placement-allocator";
@@ -127,7 +130,8 @@ const readOnlyStyle = {
 };
 
 export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
-  const { orderName, campaignDisplayId, orderAgencyName, category, placementRow } = detail;
+  const { order, orderName, campaignDisplayId, orderAgencyName, category, placementRow } = detail;
+  const [showPdfPane, setShowPdfPane] = useState(false);
   const { darkRanges, assignedRanges } = parseAllocatorData(placementRow);
   const placement: Record<string, string> = {};
   for (const f of PLACEMENT_FIELDS) {
@@ -136,6 +140,7 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
   }
 
   return (
+    <>
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
@@ -144,7 +149,25 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
             <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Order #</span>
-            <input type="text" value={orderName} readOnly style={readOnlyStyle} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="text" value={orderName} readOnly style={{ ...readOnlyStyle, flex: 1 }} />
+              <button
+                type="button"
+                onClick={() => setShowPdfPane(true)}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-secondary)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                View PDF
+              </button>
+            </div>
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
             <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>Campaign ID</span>
@@ -377,5 +400,12 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
         </div>
       </section>
     </div>
+    <PdfViewPane
+      isOpen={showPdfPane}
+      onClose={() => setShowPdfPane(false)}
+      pdfUrl={getOrderDocumentUrl(order?.documentPath)}
+      title="IO PDF"
+    />
+    </>
   );
 }

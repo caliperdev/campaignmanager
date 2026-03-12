@@ -1,5 +1,5 @@
 import {
-  getDistinctInsertionOrderIds,
+  getDistinctAdvertisersForDashboard,
   getDashboardDataFromCache,
 } from "@/lib/dashboard-placements-dsp";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
@@ -22,10 +22,12 @@ function rowsToPayload(rows: MonitorDataPayload["rows"]): MonitorDataPayload {
   const totalTotalCost = Math.round(rows.reduce((acc, r) => acc + r.totalCost, 0) * 100) / 100;
   const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
   const totalUniqueOrderCount = Math.max(...rows.map((r) => r.activeOrderCount), 0);
+  const totalPlacementCount = Math.max(...rows.map((r) => r.placementCount ?? r.activeOrderCount ?? 0), 0);
 
   return {
     orderRows: [],
     totalUniqueOrderCount,
+    totalPlacementCount,
     dataRows: [],
     rows,
     totalImpressions,
@@ -41,8 +43,8 @@ function rowsToPayload(rows: MonitorDataPayload["rows"]): MonitorDataPayload {
 
 export default async function DashboardPage() {
   const readOnly = await isReadOnlyMonitorUser();
-  const [ioOptions, rows] = await Promise.all([
-    getDistinctInsertionOrderIds(),
+  const [advertiserOptions, rows] = await Promise.all([
+    getDistinctAdvertisersForDashboard(),
     getDashboardDataFromCache(),
   ]);
 
@@ -53,7 +55,7 @@ export default async function DashboardPage() {
       initialData={initialData}
       orderTables={[]}
       dataTables={[]}
-      ioOptions={ioOptions}
+      advertiserOptions={advertiserOptions}
       readOnly={readOnly}
       forceGlobal={true}
     />

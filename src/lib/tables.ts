@@ -288,6 +288,97 @@ export async function getCampaignCountsMap(): Promise<Map<string, number>> {
   return new Map(Object.entries(obj));
 }
 
+export type StatusLabel = "Upcoming" | "Live" | "Ended";
+
+function capitalizeStatus(s: string): StatusLabel {
+  const lower = (s ?? "").toLowerCase();
+  if (lower === "upcoming") return "Upcoming";
+  if (lower === "live") return "Live";
+  return "Ended";
+}
+
+/** Server-only. Get status (Upcoming, Live, Ended) for all campaigns (cached). */
+export async function getCampaignStatusesMap(): Promise<Map<string, StatusLabel>> {
+  const obj = await unstable_cache(
+    async () => {
+      const { data, error } = await supabase.rpc("get_campaign_statuses");
+      if (error) return {};
+      const out: Record<string, StatusLabel> = {};
+      for (const row of data ?? []) {
+        out[row.campaign_id] = capitalizeStatus(row.status ?? "ended");
+      }
+      return out;
+    },
+    ["campaign-statuses"],
+    { tags: [CACHE_TAG], revalidate: 1 }
+  )();
+  return new Map(Object.entries(obj));
+}
+
+/** Server-only. Get status (Upcoming, Live, Ended) for all orders (cached). */
+export async function getOrderStatusesMap(): Promise<Map<string, StatusLabel>> {
+  const obj = await unstable_cache(
+    async () => {
+      const { data, error } = await supabase.rpc("get_all_order_statuses");
+      if (error) return {};
+      const out: Record<string, StatusLabel> = {};
+      for (const row of data ?? []) {
+        out[row.order_id] = capitalizeStatus(row.status ?? "ended");
+      }
+      return out;
+    },
+    ["order-statuses"],
+    { tags: [CACHE_TAG], revalidate: 1 }
+  )();
+  return new Map(Object.entries(obj));
+}
+
+export type PlacementCountsByStatus = { liveCount: number; upcomingCount: number; endedCount: number };
+
+/** Server-only. Get placement counts by status for all campaigns (cached). */
+export async function getCampaignPlacementCountsByStatusMap(): Promise<Map<string, PlacementCountsByStatus>> {
+  const obj = await unstable_cache(
+    async () => {
+      const { data, error } = await supabase.rpc("get_campaign_placement_counts_by_status");
+      if (error) return {};
+      const out: Record<string, PlacementCountsByStatus> = {};
+      for (const row of data ?? []) {
+        out[row.campaign_id] = {
+          liveCount: Number(row.live_count ?? 0),
+          upcomingCount: Number(row.upcoming_count ?? 0),
+          endedCount: Number(row.ended_count ?? 0),
+        };
+      }
+      return out;
+    },
+    ["campaign-placement-counts-by-status"],
+    { tags: [CACHE_TAG], revalidate: 1 }
+  )();
+  return new Map(Object.entries(obj));
+}
+
+/** Server-only. Get placement counts by status for all orders (cached). */
+export async function getOrderPlacementCountsByStatusMap(): Promise<Map<string, PlacementCountsByStatus>> {
+  const obj = await unstable_cache(
+    async () => {
+      const { data, error } = await supabase.rpc("get_all_order_placement_counts_by_status");
+      if (error) return {};
+      const out: Record<string, PlacementCountsByStatus> = {};
+      for (const row of data ?? []) {
+        out[row.order_id] = {
+          liveCount: Number(row.live_count ?? 0),
+          upcomingCount: Number(row.upcoming_count ?? 0),
+          endedCount: Number(row.ended_count ?? 0),
+        };
+      }
+      return out;
+    },
+    ["order-placement-counts-by-status"],
+    { tags: [CACHE_TAG], revalidate: 1 }
+  )();
+  return new Map(Object.entries(obj));
+}
+
 /** Server-only. Get counts for all agencies (cached). */
 export async function getAgencyCountsMap(): Promise<Map<string, AgencyCounts>> {
   const obj = await unstable_cache(

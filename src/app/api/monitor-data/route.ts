@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  getDashboardData,
   getDashboardDataFromCache,
   refreshAndStoreDashboardData,
 } from "@/lib/dashboard-placements-dsp";
@@ -16,10 +17,12 @@ function rowsToPayload(rows: MonitorDataPayload["rows"]): MonitorDataPayload {
   const totalTotalCost = Math.round(rows.reduce((acc, r) => acc + r.totalCost, 0) * 100) / 100;
   const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
   const totalUniqueOrderCount = Math.max(...rows.map((r) => r.activeOrderCount), 0);
+  const totalPlacementCount = Math.max(...rows.map((r) => r.placementCount ?? r.activeOrderCount ?? 0), 0);
 
   return {
     orderRows: [],
     totalUniqueOrderCount,
+    totalPlacementCount,
     dataRows: [],
     rows,
     totalImpressions,
@@ -39,17 +42,19 @@ export async function GET(request: Request) {
   const dt = searchParams.get("dt");
   const refresh = searchParams.get("refresh") === "1";
   const io = searchParams.get("io");
+  const advertiser = searchParams.get("advertiser");
+  const placement = searchParams.get("placement");
 
   let payload: MonitorDataPayload;
 
   if (ct && dt) {
     payload = await getOrComputeMonitorData(ct, dt);
   } else {
-    if (refresh) {
-      const rows = await refreshAndStoreDashboardData(io || undefined);
+    if (refresh && !placement) {
+      const rows = await refreshAndStoreDashboardData(io || undefined, advertiser || undefined);
       payload = rowsToPayload(rows);
     } else {
-      const rows = await getDashboardDataFromCache(io || undefined);
+      const rows = await getDashboardData(io || undefined, advertiser || undefined, placement || undefined);
       payload = rowsToPayload(rows);
     }
   }
