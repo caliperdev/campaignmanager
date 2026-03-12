@@ -3,16 +3,16 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Campaign, Source } from "@/db/schema";
+import type { Order, Source } from "@/db/schema";
 import { createClient } from "@/lib/supabase/client";
 import { refreshAppCache } from "@/lib/table-actions";
+import { useConfirm } from "@/components/ConfirmModal";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 480;
 const SIDEBAR_DEFAULT = 260;
 const RESIZE_HANDLE_WIDTH = 6;
-type NavItem = { id: string; name: string };
-const EMPTY_ITEMS: (Campaign | Source)[] = [];
+const EMPTY_ITEMS: (Order | Source)[] = [];
 const EMPTY_STYLE: React.CSSProperties = {};
 
 function Icon({ children, style = EMPTY_STYLE }: { children: React.ReactNode; style?: React.CSSProperties }) {
@@ -27,48 +27,42 @@ function Icon({ children, style = EMPTY_STYLE }: { children: React.ReactNode; st
   );
 }
 
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      style={{
-        width: 16,
-        height: 16,
-        fill: "currentColor",
-        opacity: 0.7,
-        transform: open ? "rotate(90deg)" : "rotate(0deg)",
-        transition: "transform 0.2s",
-      }}
-    >
-      <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
-    </svg>
-  );
-}
-
 export function Sidebar({
   isMobile = false,
-  campaigns = EMPTY_ITEMS,
-  sources = EMPTY_ITEMS,
+  orders: _orders = EMPTY_ITEMS,
+  sources: _sources = EMPTY_ITEMS,
   readOnlyUser = false,
 }: {
   isMobile?: boolean;
-  campaigns?: (Campaign | Source)[];
-  sources?: (Campaign | Source)[];
+  orders?: (Order | Source)[];
+  sources?: (Order | Source)[];
   readOnlyUser?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
-    const s = new Set<string>();
-    if (pathname.startsWith("/campaigns")) s.add("campaigns");
-    if (pathname.startsWith("/sources")) s.add("sources");
-    return s;
-  });
+  const { showConfirm } = useConfirm();
   const [width, setWidth] = useState(SIDEBAR_DEFAULT);
   const [resizing, setResizing] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [advertiserExpanded, setAdvertiserExpanded] = useState(() =>
+    pathname.startsWith("/advertisers") || pathname.startsWith("/orders") || pathname === "/placements" || pathname.startsWith("/campaigns")
+  );
+  const [ordersExpanded, setOrdersExpanded] = useState(() =>
+    pathname.startsWith("/orders") || pathname.startsWith("/advertisers") || pathname === "/placements" || pathname.startsWith("/campaigns")
+  );
+  const [campaignExpanded, setCampaignExpanded] = useState(() =>
+    pathname.startsWith("/orders") || pathname.startsWith("/advertisers") || pathname === "/placements" || pathname.startsWith("/campaigns")
+  );
   const startX = useRef(0);
   const startWidth = useRef(SIDEBAR_DEFAULT);
+
+  useEffect(() => {
+    if (pathname.startsWith("/advertisers") || pathname.startsWith("/orders") || pathname.startsWith("/clients") || pathname === "/placements" || pathname.startsWith("/campaigns")) {
+      setAdvertiserExpanded(true);
+      setOrdersExpanded(true);
+      setCampaignExpanded(true);
+    }
+  }, [pathname]);
 
   const syncUserEmail = useCallback(() => {
     const supabase = createClient();
@@ -108,29 +102,17 @@ export function Sidebar({
     };
   }, [isMobile, resizing]);
 
-  useEffect(() => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (pathname.startsWith("/campaigns")) next.add("campaigns");
-      if (pathname.startsWith("/sources")) next.add("sources");
-      return next;
-    });
-  }, [pathname]);
-
-  const toggleSection = (key: string) => {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
   const isHomePage = pathname === "/home";
-  const isMonitorPage = pathname === "/monitor";
-  const isCampaignsList = pathname === "/campaigns";
-  const isSourcesList = pathname === "/sources";
-  const isBoardPage = (basePath: string, id: string) => pathname === `${basePath}/${id}`;
+  const isClientsPage = pathname.startsWith("/clients");
+  const isAgenciesPage = pathname.startsWith("/agencies");
+  const isAdvertisersPage = pathname.startsWith("/advertisers");
+  const isDashboardPage = pathname === "/dashboard";
+  const isOrdersList = pathname.startsWith("/orders");
+  const isCampaignsList = pathname.startsWith("/campaigns");
+  const isPlacementsList = pathname.startsWith("/placements");
+  const isSourcesList = pathname.startsWith("/sources");
+  const isInAdvertiserSection = isAdvertisersPage || isOrdersList || isCampaignsList || isPlacementsList;
+  const isAdvertiserSectionParent = isInAdvertiserSection && !isAdvertisersPage;
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -139,213 +121,191 @@ export function Sidebar({
     setResizing(true);
   };
 
-  const navStyle: React.CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    padding: isMobile ? "16px" : "24px 16px",
-    background: "var(--bg-secondary)",
-    ...(isMobile
-      ? { width: "100%", minWidth: 0, borderRight: "none" }
-      : { width, minWidth: width, borderRight: "1px solid var(--border-light)" }),
-  };
-
-  function renderItemList(items: NavItem[], basePath: string, emptyLabel: string) {
-    if (items.length === 0) {
-      return (
-        <span style={{ fontSize: 12, color: "var(--text-tertiary)", paddingLeft: 12 }}>
-          {emptyLabel}
-        </span>
-      );
-    }
-    return items.map((t) => {
-      const isActive = isBoardPage(basePath, t.id);
-      return (
-        <Link
-          key={t.id}
-          href={`${basePath}/${t.id}`}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "6px 12px 6px 12px",
-            color: isActive ? "var(--accent-dark)" : "var(--text-secondary)",
-            textDecoration: "none",
-            borderRadius: "var(--radius-sm)",
-            marginBottom: 1,
-            fontSize: 13,
-            fontWeight: isActive ? 600 : 500,
-            background: isActive ? "#E8EBEB" : "transparent",
-          }}
-        >
-          <span style={{ marginRight: 8, opacity: 0.7 }}>
-            <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: "currentColor" }}>
-              <path d="M3 5v14h18V5H3zm4 2v2H5V7h2zm-2 6v-2h2v2H5zm0 2v2h2v-2H5zm4-8h10v10H9V7zm2 2v6h6V9h-6z" />
-            </svg>
-          </span>
-          {t.name}
-        </Link>
-      );
-    });
-  }
-
-  function renderSection(
-    key: string,
-    label: string,
-    href: string,
-    isListActive: boolean,
-    items: NavItem[],
-    basePath: string,
-    emptyLabel: string,
-    icon: React.ReactNode,
-  ) {
-    const isOpen = expandedSections.has(key);
-    return (
-      <div key={key} style={{ marginTop: 2 }}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: "2px" }}>
-          <button
-            type="button"
-            onClick={() => toggleSection(key)}
-            aria-expanded={isOpen}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 28,
-              height: 32,
-              padding: 0,
-              border: "none",
-              background: "transparent",
-              color: "var(--text-tertiary)",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            <Chevron open={isOpen} />
-          </button>
-          <Link
-            href={href}
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              padding: "8px 12px 8px 4px",
-              color: isListActive ? "var(--accent-dark)" : "var(--text-secondary)",
-              textDecoration: "none",
-              borderRadius: "var(--radius-md)",
-              transition: "color 0.2s var(--anim-ease), background 0.2s var(--anim-ease), font-weight 0.2s var(--anim-ease)",
-              fontWeight: isListActive ? 600 : 500,
-              background: isListActive ? "#E8EBEB" : "transparent",
-            }}
-          >
-            <span style={{ marginRight: 8 }}>{icon}</span>
-            {label}
-          </Link>
-        </div>
-        {isOpen && (
-          <div style={{ paddingLeft: 28, marginBottom: 4 }}>
-            {renderItemList(items, basePath, emptyLabel)}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div style={{ display: "flex", flexShrink: 0, ...(isMobile ? { width: "100%" } : {}) }}>
-      <nav style={navStyle}>
-        <div
-          style={{
-            fontSize: "18px",
-            fontWeight: 700,
-            color: "var(--text-primary)",
-            marginBottom: "32px",
-            paddingLeft: "12px",
-            letterSpacing: "-0.02em",
-          }}
-        >
-          Campaign Manager
-        </div>
+      <nav className="sidebar" style={{
+        width: isMobile ? "100%" : width,
+        minWidth: isMobile ? "100%" : width,
+        borderRight: isMobile ? "none" : "1px solid #E5E7EB",
+        display: "flex",
+        flexDirection: "column",
+        padding: "var(--space-l) var(--space-m)",
+        background: "#FFFFFF",
+      }}>
+        <Link href="/home" className="agency-selector" style={{ textDecoration: "none", color: "inherit" }}>
+            <img src="/logo.jpeg" alt="Buho Media" className="agency-logo" />
+            <div className="agency-name">Buho Media</div>
+        </Link>
 
-        <div style={{ marginBottom: "24px" }}>
-          {/* HOME - hidden for read-only users (monitor-only) */}
-          {!readOnlyUser && (
-            <Link
-              href="/home"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "8px 12px",
-                color: isHomePage ? "var(--accent-dark)" : "var(--text-secondary)",
-                textDecoration: "none",
-                borderRadius: "var(--radius-md)",
-                transition: "color 0.2s var(--anim-ease), background 0.2s var(--anim-ease), font-weight 0.2s var(--anim-ease)",
-                marginBottom: "2px",
-                fontWeight: isHomePage ? 600 : 500,
-                background: isHomePage ? "#E8EBEB" : "transparent",
-              }}
-            >
-              <span style={{ marginRight: "12px" }}>
-                <Icon><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></Icon>
-              </span>
-              Home
+        <div className="nav-group">
+            {!readOnlyUser && (
+              <Link href="/home" className={`nav-item-new ${isHomePage ? "active" : ""}`}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                      <svg className="nav-icon" viewBox="0 0 24 24">
+                          <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"></path>
+                      </svg>
+                      Home
+                  </div>
+              </Link>
+            )}
+            
+            <Link href="/clients" className={`nav-item-new ${isClientsPage ? "active" : ""}`}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                    <svg className="nav-icon" viewBox="0 0 24 24">
+                        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"></path>
+                    </svg>
+                    Clients
+                </div>
             </Link>
-          )}
 
-          {/* CAMPAIGNS section - hidden for read-only users */}
-          {!readOnlyUser &&
-            renderSection(
-              "campaigns",
-              "Campaigns",
-              "/campaigns",
-              isCampaignsList,
-              campaigns,
-              "/campaigns",
-              "No campaigns",
-              <Icon><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" /></Icon>,
+            <Link href="/agencies" className={`nav-item-new ${isAgenciesPage ? "active" : ""}`}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                    <svg className="nav-icon" viewBox="0 0 24 24">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"></path>
+                    </svg>
+                    Agencies
+                </div>
+            </Link>
+
+            <Link
+              href="/advertisers"
+              className={`nav-item-new ${isAdvertisersPage ? "active" : ""} ${isAdvertiserSectionParent ? "active-parent" : ""}`}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textDecoration: "none" }}
+              aria-expanded={advertiserExpanded}
+            >
+                <span style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
+                    <svg className="nav-icon" viewBox="0 0 24 24">
+                        <line x1="4" y1="9" x2="20" y2="9"></line>
+                        <line x1="4" y1="15" x2="20" y2="15"></line>
+                        <line x1="10" y1="3" x2="8" y2="21"></line>
+                        <line x1="16" y1="3" x2="14" y2="21"></line>
+                    </svg>
+                    Advertisers
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAdvertiserExpanded((prev) => !prev); }}
+                  aria-label={advertiserExpanded ? "Collapse" : "Expand"}
+                  style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center" }}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    style={{
+                      width: 14,
+                      height: 14,
+                      transform: advertiserExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                    }}
+                  >
+                    <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+            </Link>
+            
+            {advertiserExpanded && (
+              <div className="nav-nested">
+                <Link
+                  href="/campaigns"
+                  className={`sub-item sub-item-expandable ${isCampaignsList ? "active" : ""}`}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textDecoration: "none" }}
+                  aria-expanded={campaignExpanded}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>Campaigns</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCampaignExpanded((prev) => !prev); }}
+                    aria-label={campaignExpanded ? "Collapse" : "Expand"}
+                    style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center" }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      style={{
+                        width: 12,
+                        height: 12,
+                        transform: campaignExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.2s",
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </Link>
+                {campaignExpanded && (
+                  <div className="nav-nested nav-nested-2">
+                    <Link
+                      href="/orders"
+                      className={`sub-item sub-item-expandable ${isOrdersList ? "active" : ""}`}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", textDecoration: "none" }}
+                      aria-expanded={ordersExpanded}
+                    >
+                      <span style={{ flex: 1, minWidth: 0 }}>Orders</span>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOrdersExpanded((prev) => !prev); }}
+                        aria-label={ordersExpanded ? "Collapse" : "Expand"}
+                        style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center" }}
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          style={{
+                            width: 12,
+                            height: 12,
+                            transform: ordersExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                            transition: "transform 0.2s",
+                          }}
+                        >
+                          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </Link>
+                    {ordersExpanded && (
+                      <div className="nav-nested nav-nested-3">
+                        <Link href="/placements" className={`sub-item ${isPlacementsList ? "active" : ""}`}>
+                          Placements
+                          {isPlacementsList && <div className="status-dot" style={{ width: 4, height: 4 }} />}
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
 
-          {/* SOURCES section - hidden for read-only users */}
-          {!readOnlyUser &&
-            renderSection(
-              "sources",
-              "Sources",
-              "/sources",
-              isSourcesList,
-              sources,
-              "/sources",
-              "No sources",
-              <Icon><path d="M20 6H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H4V8h16v8zM6 12h2v2H6v-2zm3-2h2v2H9v-2zm3 0h2v2h-2v-2zm3 0h2v2h-2v-2z" /></Icon>,
-            )}
+            <Link href="/sources" className={`nav-item-new ${isSourcesList ? "active" : ""}`}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                    <svg className="nav-icon" viewBox="0 0 24 24">
+                        <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"></path>
+                    </svg>
+                    Sources
+                </div>
+            </Link>
 
-          {/* MONITOR */}
-          <Link
-            href="/monitor"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              padding: "8px 12px",
-              color: isMonitorPage ? "var(--accent-dark)" : "var(--text-secondary)",
-              textDecoration: "none",
-              borderRadius: "var(--radius-md)",
-              transition: "color 0.2s var(--anim-ease), background 0.2s var(--anim-ease), font-weight 0.2s var(--anim-ease)",
-              marginBottom: "2px",
-              fontWeight: isMonitorPage ? 600 : 500,
-              background: isMonitorPage ? "#E8EBEB" : "transparent",
-            }}
-          >
-            <span style={{ marginRight: "12px" }}>
-              <Icon><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z" /></Icon>
-            </span>
-            Monitor
-          </Link>
+            <Link href="/dashboard" className={`nav-item-new ${isDashboardPage ? "active" : ""}`}>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                    <svg className="nav-icon" viewBox="0 0 24 24">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"></path>
+                    </svg>
+                    Dashboard
+                </div>
+            </Link>
         </div>
 
-        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--border-light)" }}>
+        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #E5E7EB" }}>
           {userEmail && (
             <div
               style={{
                 padding: "8px 12px",
-                fontSize: 12,
-                color: "var(--text-tertiary)",
+                fontSize: 14,
+                color: "var(--text-tertiary-new)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
@@ -355,28 +315,25 @@ export function Sidebar({
               {userEmail}
             </div>
           )}
+          <Link
+            href="/test-link"
+            className={`sidebar-footer-btn ${pathname === "/test-link" ? "active" : ""}`}
+            style={{ display: "flex", alignItems: "center", textDecoration: "none", color: "inherit", marginBottom: 8 }}
+          >
+            Test page
+          </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {!readOnlyUser && (
               <button
                 type="button"
+                className="sidebar-footer-btn"
                 onClick={async () => {
-                  if (!window.confirm("Refresh app data? This will refetch all tables.")) return;
-                  if (!window.confirm("Really refresh? All data will be reloaded.")) return;
+                  const first = await showConfirm({ message: "Refresh app data? This will refetch all tables.", confirmLabel: "Continue" });
+                  if (!first) return;
+                  const second = await showConfirm({ message: "Really refresh? All data will be reloaded.", confirmLabel: "Refresh" });
+                  if (!second) return;
                   await refreshAppCache();
                   router.refresh();
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  flex: 1,
-                  padding: "8px 12px",
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--text-secondary)",
-                  fontSize: 14,
-                  cursor: "pointer",
-                  borderRadius: "var(--radius-md)",
-                  textAlign: "left",
                 }}
                 title="Refresh app data"
               >
@@ -388,24 +345,12 @@ export function Sidebar({
             )}
             <button
               type="button"
+              className="sidebar-footer-btn"
               onClick={async () => {
                 const supabase = createClient();
                 await supabase.auth.signOut();
                 router.refresh();
                 router.push("/");
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flex: 1,
-                padding: "8px 12px",
-                border: "none",
-                background: "transparent",
-                color: "var(--text-secondary)",
-                fontSize: 14,
-                cursor: "pointer",
-                borderRadius: "var(--radius-md)",
-                textAlign: "left",
               }}
             >
               Sign out
@@ -422,11 +367,11 @@ export function Sidebar({
             width: RESIZE_HANDLE_WIDTH,
             cursor: "col-resize",
             flexShrink: 0,
-            background: resizing ? "var(--accent-dark)" : "transparent",
+            background: resizing ? "var(--accent-mint)" : "transparent",
             transition: resizing ? "none" : "background 0.15s",
           }}
           onMouseEnter={(e) => {
-            if (!resizing) e.currentTarget.style.background = "var(--border-light)";
+            if (!resizing) e.currentTarget.style.background = "#E5E7EB";
           }}
           onMouseLeave={(e) => {
             if (!resizing) e.currentTarget.style.background = "transparent";

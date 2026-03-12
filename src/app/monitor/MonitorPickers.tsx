@@ -5,14 +5,14 @@ import { useRouter, usePathname } from "next/navigation";
 type TableOption = { id: string; name: string };
 
 type Props = {
-  campaignTables: TableOption[];
+  orderTables: TableOption[];
   dataTables: TableOption[];
   selectedCt: string | null;
   selectedDt: string | null;
 };
 
 export default function MonitorPickers({
-  campaignTables,
+  orderTables,
   dataTables,
   selectedCt,
   selectedDt,
@@ -28,7 +28,7 @@ export default function MonitorPickers({
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  function handleCampaignChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  function handleOrderChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value || null;
     updateParams(value, selectedDt);
   }
@@ -58,17 +58,17 @@ export default function MonitorPickers({
     <div style={{ display: "flex", gap: 24, alignItems: "flex-end", flexWrap: "wrap" }}>
       <div>
         <label htmlFor="monitor-ct" style={labelStyle}>
-          Campaign table
+          Order table
         </label>
         <select
           id="monitor-ct"
           value={selectedCt ?? ""}
-          onChange={handleCampaignChange}
+          onChange={handleOrderChange}
           style={selectStyle}
-          aria-label="Select campaign table"
+          aria-label="Select order table"
         >
           <option value="">All</option>
-          {campaignTables.map((t) => (
+          {orderTables.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
             </option>

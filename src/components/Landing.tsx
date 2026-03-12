@@ -34,7 +34,7 @@ export function Landing() {
             lineHeight: 1.5,
           }}
         >
-          Manage campaigns, import CSV, and plan flights in one place.
+          Manage campaigns and plan flights in one place.
         </p>
         <Link
           href="/login"

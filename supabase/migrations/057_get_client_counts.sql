@@ -1,0 +1,83 @@
+-- RPC: Get counts for all clients in one call.
+-- Counts agencies, advertisers, campaigns, orders, placements (placements table + dynamic tables).
+CREATE OR REPLACE FUNCTION get_all_client_counts()
+RETURNS TABLE(
+  client_id uuid,
+  agency_count int,
+  advertiser_count int,
+  campaign_count int,
+  order_count int,
+  placement_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  r record;
+  v_agency_count int;
+  v_advertiser_count int;
+  v_campaign_count int;
+  v_order_count int;
+  v_placement_count bigint;
+  v_tbl_count bigint;
+  v_tbl text;
+BEGIN
+  FOR r IN SELECT id FROM clients LOOP
+    SELECT count(*)::int INTO v_agency_count
+    FROM agencies ag WHERE ag.client_id = r.id;
+
+    SELECT count(DISTINCT c.advertiser_id)::int INTO v_advertiser_count
+    FROM campaigns c
+    JOIN agencies ag ON c.agency_id = ag.id
+    WHERE ag.client_id = r.id;
+
+    SELECT count(*)::int INTO v_campaign_count
+    FROM campaigns c
+    JOIN agencies ag ON c.agency_id = ag.id
+    WHERE ag.client_id = r.id;
+
+    SELECT count(*)::int INTO v_order_count
+    FROM orders o
+    JOIN campaigns c ON o.campaign_id = c.id
+    JOIN agencies ag ON c.agency_id = ag.id
+    WHERE ag.client_id = r.id;
+
+    v_placement_count := 0;
+    -- Placements from placements table
+    SELECT count(*)::bigint INTO v_placement_count
+    FROM placements p
+    JOIN orders o ON p.order_id = o.id
+    JOIN campaigns c ON o.campaign_id = c.id
+    JOIN agencies ag ON c.agency_id = ag.id
+    WHERE ag.client_id = r.id;
+    IF v_placement_count IS NULL THEN v_placement_count := 0; END IF;
+
+    -- Placements from dynamic tables
+    FOR v_tbl IN
+      SELECT o.dynamic_table_name
+      FROM orders o
+      JOIN campaigns c ON o.campaign_id = c.id
+      JOIN agencies ag ON c.agency_id = ag.id
+      WHERE ag.client_id = r.id
+        AND o.dynamic_table_name IS NOT NULL
+        AND o.dynamic_table_name <> ''
+    LOOP
+      BEGIN
+        EXECUTE format('SELECT count(*) FROM %I', v_tbl) INTO v_tbl_count;
+        v_placement_count := v_placement_count + v_tbl_count;
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+    END LOOP;
+
+    client_id := r.id;
+    agency_count := v_agency_count;
+    advertiser_count := v_advertiser_count;
+    campaign_count := v_campaign_count;
+    order_count := v_order_count;
+    placement_count := v_placement_count;
+    RETURN NEXT;
+  END LOOP;
+END;
+$$;

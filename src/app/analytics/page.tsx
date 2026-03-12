@@ -2,7 +2,7 @@ import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Analytics",
-  description: "Campaign analytics",
+  description: "Order analytics",
 };
 
 export default async function AnalyticsPage() {

@@ -2,7 +2,7 @@ import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Assets",
-  description: "Campaign assets",
+  description: "Order assets",
 };
 
 export default async function AssetsPage() {

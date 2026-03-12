@@ -1,6 +1,9 @@
 "use client";
 
 import { ThemeProvider, createTheme } from "@mui/material/styles";
+import { ConfirmProvider } from "@/components/ConfirmModal";
+import { LoadingProvider } from "@/components/LoadingOverlay";
+import { NavigationLoadingHandler } from "@/components/NavigationLoadingHandler";
 
 const theme = createTheme({
   palette: {
@@ -11,5 +14,14 @@ const theme = createTheme({
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <ThemeProvider theme={theme}>{children}</ThemeProvider>;
+  return (
+    <ThemeProvider theme={theme}>
+      <ConfirmProvider>
+        <LoadingProvider>
+          <NavigationLoadingHandler />
+          {children}
+        </LoadingProvider>
+      </ConfirmProvider>
+    </ThemeProvider>
+  );
 }

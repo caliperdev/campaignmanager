@@ -13,8 +13,8 @@ function normalizedConfigEmail(): string | null {
 }
 
 export const metadata = {
-  title: "Share — Monitor",
-  description: "Read-only global Monitor view",
+  title: "Share — Dashboard",
+  description: "Read-only global Dashboard view",
 };
 
 export default async function SharePage() {
@@ -36,8 +36,8 @@ export default async function SharePage() {
   const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
 
   const initialData: MonitorDataPayload = {
-    campaignRows: [],
-    totalUniqueCampaignCount: 0,
+    orderRows: [],
+    totalUniqueOrderCount: 0,
     dataRows: [],
     rows,
     totalImpressions,

@@ -13,7 +13,7 @@ export default async function Home() {
   if (supabase) {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      redirect((await isReadOnlyMonitorUser()) ? "/monitor" : "/home");
+      redirect((await isReadOnlyMonitorUser()) ? "/dashboard" : "/home");
     }
   }
   return <Landing />;

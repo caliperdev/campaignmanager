@@ -7,7 +7,7 @@ import type { MonitorRow } from "@/db/schema";
 export type MonitorDisplayRow = {
   yearMonth: string;
   sumImpressions: number;
-  activeCampaignCount: number;
+  activeOrderCount: number;
   dataImpressions: number;
   deliveredLines: number;
   mediaCost: number;
@@ -22,7 +22,7 @@ export function toMonitorDisplayRows(rows: MonitorRow[]): MonitorDisplayRow[] {
   return rows.map((r) => ({
     yearMonth: r.yearMonth,
     sumImpressions: r.bookedImpressions,
-    activeCampaignCount: 0,
+    activeOrderCount: 0,
     dataImpressions: r.deliveredImpressions,
     deliveredLines: r.deliveredLines,
     mediaCost: r.mediaCost,
@@ -34,8 +34,8 @@ export function toMonitorDisplayRows(rows: MonitorRow[]): MonitorDisplayRow[] {
 }
 
 export type MonitorDataPayload = {
-  campaignRows: MonitorDisplayRow[];
-  totalUniqueCampaignCount: number;
+  orderRows: MonitorDisplayRow[];
+  totalUniqueOrderCount: number;
   dataRows: MonitorDisplayRow[];
   rows: MonitorDisplayRow[];
   totalImpressions: number;

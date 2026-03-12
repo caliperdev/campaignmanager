@@ -8,6 +8,9 @@ import {
   getDataverseTables,
   getDataverseTableChunk,
   getDataverseTableFull,
+  getDataverseTableFiltered,
+  getDataverseTableChunkFirst,
+  getDataverseTableChunkNext,
 } from "@/lib/dataverse-client";
 
 export interface DataverseTableInfo {
@@ -117,4 +120,34 @@ export async function fetchDataverseTableFull(
   logicalName: string
 ): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
   return getDataverseTableFull(entitySetName, logicalName);
+}
+
+/** Server-only. Fetch Dataverse rows where filterColumn = filterValue (exact match). For efficient join. */
+export async function fetchDataverseTableFiltered(
+  entitySetName: string,
+  logicalName: string,
+  filterColumn: string,
+  filterValue: string
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
+  return getDataverseTableFiltered(entitySetName, logicalName, filterColumn, filterValue);
+}
+
+/** Server-only. First chunk of Dataverse source with optional sort. Returns nextLink for load-more. */
+export async function fetchDataverseSourceChunkFirst(
+  entitySetName: string,
+  logicalName: string,
+  limit: number,
+  orderByColumn: string | null,
+  orderAsc: boolean
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number; nextLink: string | null }> {
+  return getDataverseTableChunkFirst(entitySetName, logicalName, limit, orderByColumn, orderAsc);
+}
+
+/** Server-only. Next chunk of Dataverse source via nextLink. */
+export async function fetchDataverseSourceChunkNext(
+  nextLink: string,
+  columns: string[],
+  startId: number
+): Promise<{ rows: Record<string, string>[]; nextLink: string | null }> {
+  return getDataverseTableChunkNext(nextLink, columns, startId);
 }

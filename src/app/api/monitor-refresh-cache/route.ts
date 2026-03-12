@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { refreshMonitorCache } from "@/lib/monitor-cache";
 import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
 
-/** Force re-compute and cache monitor data for the given campaign + source. */
+/** Force re-compute and cache monitor data for the given order + source. */
 export async function POST(request: Request) {
   if (await isReadOnlyMonitorUser()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

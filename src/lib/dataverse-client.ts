@@ -165,59 +165,103 @@ export async function getDataverseTableChunk(
   offset: number,
   limit: number
 ): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
+  const result = await getDataverseTableChunkFirst(entitySetName, _logicalName, limit, null, true);
+  if (offset > 0) return { ...result, rows: [] };
+  return result;
+}
+
+/** First page of Dataverse table with optional sort. Returns nextLink for loading more. */
+export async function getDataverseTableChunkFirst(
+  entitySetName: string,
+  logicalName: string,
+  limit: number,
+  orderByColumn: string | null,
+  orderAsc: boolean
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number; nextLink: string | null }> {
   const serverUrl = getServerUrl();
   const token = await getAccessToken();
 
   const columns = await getSelectableColumns(serverUrl, token, entitySetName);
   if (columns.length === 0) {
-    return { columns: [], rows: [], total: 0 };
+    return { columns: [], rows: [], total: 0, nextLink: null };
   }
 
   const selectParam = columns.map((c) => encodeURIComponent(c)).join(",");
-  const countUrl = `${serverUrl}api/data/v9.2/${encodeURIComponent(entitySetName)}?$count=true&$top=0`;
-  const countRes = await fetch(countUrl, {
-    headers: {
-      Authorization: DATAVERSE_HEADERS.Authorization(token),
-      Accept: DATAVERSE_HEADERS.Accept,
-      "OData-MaxVersion": DATAVERSE_HEADERS["OData-MaxVersion"],
-      "OData-Version": DATAVERSE_HEADERS["OData-Version"],
-    },
-  });
-  let total = 0;
-  if (countRes.ok) {
-    const countJson = (await countRes.json()) as { "@odata.count"?: number };
-    total = Number(countJson["@odata.count"]) || 0;
-  }
+  const primaryKeyCol = columns.find((c) => c.toLowerCase() === `${logicalName.toLowerCase()}id`) ?? columns[0];
+  const orderBy = orderByColumn && columns.includes(orderByColumn)
+    ? `${orderByColumn} ${orderAsc ? "asc" : "desc"}`
+    : primaryKeyCol;
+  const orderByParam = encodeURIComponent(orderBy);
+  const url = `${serverUrl}api/data/v9.2/${encodeURIComponent(entitySetName)}?$select=${selectParam}&$orderby=${orderByParam}&$top=${limit}&$count=true`;
+  const headers: Record<string, string> = {
+    Authorization: DATAVERSE_HEADERS.Authorization(token),
+    Accept: DATAVERSE_HEADERS.Accept,
+    "OData-MaxVersion": DATAVERSE_HEADERS["OData-MaxVersion"],
+    "OData-Version": DATAVERSE_HEADERS["OData-Version"],
+  };
 
-  // Dataverse does not support $skip; only fetch first page (offset=0)
-  if (offset > 0) {
-    return { columns, rows: [], total };
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(dataverseErrorMessage(res.status, body));
   }
-  const dataUrl = `${serverUrl}api/data/v9.2/${encodeURIComponent(entitySetName)}?$select=${selectParam}&$top=${limit}`;
-  const dataRes = await fetch(dataUrl, {
-    headers: {
-      Authorization: DATAVERSE_HEADERS.Authorization(token),
-      Accept: DATAVERSE_HEADERS.Accept,
-      "OData-MaxVersion": DATAVERSE_HEADERS["OData-MaxVersion"],
-      "OData-Version": DATAVERSE_HEADERS["OData-Version"],
-    },
-  });
-  if (!dataRes.ok) {
-    const body = await dataRes.text();
-    throw new Error(dataverseErrorMessage(dataRes.status, body));
-  }
-  const dataJson = (await dataRes.json()) as { value?: Record<string, unknown>[] };
-  const chunk = dataJson.value ?? [];
+  const json = (await res.json()) as {
+    value?: Record<string, unknown>[];
+    "@odata.count"?: number;
+    "@odata.nextLink"?: string;
+  };
+  const chunk = json.value ?? [];
+  const total = Number(json["@odata.count"]) ?? 0;
+  const nextLink = json["@odata.nextLink"] ?? null;
   const rows: Record<string, string>[] = chunk.map((record, idx) => {
     const row: Record<string, string> = {};
     for (const col of columns) {
       row[col] = flattenValue(record[col]);
     }
-    row.id = String(offset + idx + 1);
+    row.id = String(idx + 1);
     return row;
   });
 
-  return { columns, rows, total };
+  return { columns, rows, total, nextLink };
+}
+
+/** Fetch next page using @odata.nextLink. Columns and total from first page. */
+export async function getDataverseTableChunkNext(
+  nextLink: string,
+  columns: string[],
+  startId: number
+): Promise<{ rows: Record<string, string>[]; nextLink: string | null }> {
+  const serverUrl = getServerUrl();
+  const token = await getAccessToken();
+  const url = resolveNextLink(nextLink, serverUrl);
+  const headers: Record<string, string> = {
+    Authorization: DATAVERSE_HEADERS.Authorization(token),
+    Accept: DATAVERSE_HEADERS.Accept,
+    "OData-MaxVersion": DATAVERSE_HEADERS["OData-MaxVersion"],
+    "OData-Version": DATAVERSE_HEADERS["OData-Version"],
+  };
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(dataverseErrorMessage(res.status, body));
+  }
+  const json = (await res.json()) as {
+    value?: Record<string, unknown>[];
+    "@odata.nextLink"?: string;
+  };
+  const chunk = json.value ?? [];
+  const next = json["@odata.nextLink"] ?? null;
+  const rows: Record<string, string>[] = chunk.map((record, idx) => {
+    const row: Record<string, string> = {};
+    for (const col of columns) {
+      row[col] = flattenValue(record[col]);
+    }
+    row.id = String(startId + idx + 1);
+    return row;
+  });
+
+  return { rows, nextLink: next };
 }
 
 const PAGE_SIZE = 5000;
@@ -252,6 +296,84 @@ export async function getDataverseTableFull(
   const primaryKeyCol = columns.find((c) => c.toLowerCase() === `${logicalName.toLowerCase()}id`) ?? columns[0];
   const orderBy = encodeURIComponent(primaryKeyCol);
   const firstUrl = `${serverUrl}api/data/v9.2/${encodeURIComponent(entitySetName)}?$select=${selectParam}&$orderby=${orderBy}&$top=${PAGE_SIZE}&$count=true`;
+  const headers: Record<string, string> = {
+    Authorization: DATAVERSE_HEADERS.Authorization(token),
+    Accept: DATAVERSE_HEADERS.Accept,
+    "OData-MaxVersion": DATAVERSE_HEADERS["OData-MaxVersion"],
+    "OData-Version": DATAVERSE_HEADERS["OData-Version"],
+    "Prefer": "odata.maxpagesize=5000",
+  };
+
+  const allRows: Record<string, string>[] = [];
+  let total = 0;
+  let nextLink: string | null = firstUrl;
+
+  while (nextLink) {
+    const url = resolveNextLink(nextLink, serverUrl);
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(dataverseErrorMessage(res.status, body));
+    }
+    const json = (await res.json()) as {
+      value?: Record<string, unknown>[];
+      "@odata.count"?: number;
+      "@odata.nextLink"?: string;
+    };
+    const chunk = json.value ?? [];
+    total = (Number(json["@odata.count"]) ?? total) || (allRows.length + chunk.length);
+    for (let idx = 0; idx < chunk.length; idx++) {
+      const record = chunk[idx];
+      const row: Record<string, string> = {};
+      for (const col of columns) {
+        row[col] = flattenValue(record[col]);
+      }
+      row.id = String(allRows.length + idx + 1);
+      allRows.push(row);
+    }
+    nextLink = json["@odata.nextLink"] ?? null;
+  }
+
+  if (total === 0 && allRows.length > 0) total = allRows.length;
+  return { columns, rows: allRows, total };
+}
+
+/** Escape a string value for OData $filter: single quotes doubled. */
+function escapeODataString(val: string): string {
+  return String(val ?? "").replace(/'/g, "''");
+}
+
+/**
+ * Fetch Dataverse rows filtered by column = value (exact match, text).
+ * Fetches all matching rows via pagination. Use when leftValue is known for efficient join.
+ */
+export async function getDataverseTableFiltered(
+  entitySetName: string,
+  logicalName: string,
+  filterColumn: string,
+  filterValue: string
+): Promise<{ columns: string[]; rows: Record<string, string>[]; total: number }> {
+  if (!filterValue.trim()) {
+    return getDataverseTableFull(entitySetName, logicalName);
+  }
+  const serverUrl = getServerUrl();
+  const token = await getAccessToken();
+
+  const columns = await getSelectableColumns(serverUrl, token, entitySetName);
+  if (columns.length === 0) {
+    return { columns: [], rows: [], total: 0 };
+  }
+  if (!columns.includes(filterColumn)) {
+    return { columns, rows: [], total: 0 };
+  }
+
+  const escaped = escapeODataString(filterValue);
+  const filterExpr = `${filterColumn} eq '${escaped}'`;
+  const filterParam = encodeURIComponent(filterExpr);
+  const selectParam = columns.map((c) => encodeURIComponent(c)).join(",");
+  const primaryKeyCol = columns.find((c) => c.toLowerCase() === `${logicalName.toLowerCase()}id`) ?? columns[0];
+  const orderBy = encodeURIComponent(primaryKeyCol);
+  const firstUrl = `${serverUrl}api/data/v9.2/${encodeURIComponent(entitySetName)}?$select=${selectParam}&$filter=${filterParam}&$orderby=${orderBy}&$top=${PAGE_SIZE}&$count=true`;
   const headers: Record<string, string> = {
     Authorization: DATAVERSE_HEADERS.Authorization(token),
     Accept: DATAVERSE_HEADERS.Accept,

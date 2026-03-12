@@ -1,11 +1,20 @@
 import { notFound } from "next/navigation";
-import { getSource, getDynamicTableChunkWithCount } from "@/lib/tables";
+import {
+  getSource,
+  getDynamicTableChunkWithCount,
+  getTraffickerOptions,
+  getAmOptions,
+  getQaAmOptions,
+  getFormatOptions,
+  getCategoryOptions,
+  getDealOptions,
+} from "@/lib/tables";
 import type { DynamicTableRow } from "@/lib/tables";
-import { fetchDataverseTableFull } from "@/lib/dataverse-source";
+import { fetchDataverseSourceChunkFirst } from "@/lib/dataverse-source";
 import { TableView } from "@/components/TableView";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
-const INITIAL_PAGE_SIZE = 500;
+const INITIAL_PAGE_SIZE = 200;
 
 export const metadata = {
   title: "Source",
@@ -19,15 +28,24 @@ export default async function SourceBoardPage({
 }) {
   await enforceNotReadOnly();
   const { id } = await params;
-  const source = await getSource(id);
+  const [source, traffickerOptions, amOptions, qaAmOptions, formatOptions, categoryOptions, dealOptions] =
+    await Promise.all([
+      getSource(id),
+      getTraffickerOptions(),
+      getAmOptions(),
+      getQaAmOptions(),
+      getFormatOptions(),
+      getCategoryOptions(),
+      getDealOptions(),
+    ]);
   if (!source) notFound();
 
   const isDataverse = Boolean(source.entitySetName && source.logicalName);
 
   if (isDataverse) {
-    let chunk: Awaited<ReturnType<typeof fetchDataverseTableFull>>;
+    let chunk: Awaited<ReturnType<typeof fetchDataverseSourceChunkFirst>>;
     try {
-      chunk = await fetchDataverseTableFull(source.entitySetName!, source.logicalName!);
+      chunk = await fetchDataverseSourceChunkFirst(source.entitySetName!, source.logicalName!, INITIAL_PAGE_SIZE, null, true);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return (
@@ -87,6 +105,16 @@ export default async function SourceBoardPage({
         initialDynamicRows={rows}
         dynamicTotal={chunk.total}
         readOnly={true}
+        isDataverseSource={true}
+        entitySetName={source.entitySetName!}
+        logicalName={source.logicalName!}
+        dataverseNextLink={chunk.nextLink}
+        categoryOptions={categoryOptions}
+        traffickerOptions={traffickerOptions}
+        amOptions={amOptions}
+        qaAmOptions={qaAmOptions}
+        formatOptions={formatOptions}
+        dealOptions={dealOptions}
       />
     );
   }
@@ -104,6 +132,13 @@ export default async function SourceBoardPage({
       initialDynamicRows={chunk.rows}
       dynamicTotal={chunk.total}
       readOnly={true}
+      isDataverseSource={false}
+      categoryOptions={categoryOptions}
+      traffickerOptions={traffickerOptions}
+      amOptions={amOptions}
+      qaAmOptions={qaAmOptions}
+      formatOptions={formatOptions}
+      dealOptions={dealOptions}
     />
   );
 }

@@ -2,7 +2,7 @@ import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Review",
-  description: "Review pending campaigns",
+  description: "Review pending orders",
 };
 
 export default async function ReviewPage() {

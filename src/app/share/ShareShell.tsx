@@ -117,7 +117,7 @@ export default function ShareShell({ initialData }: Props) {
           initialData={initialData}
           ct={null}
           dt={null}
-          campaignTables={[]}
+          orderTables={[]}
           dataTables={[]}
           dimensionOptions={[]}
           readOnly

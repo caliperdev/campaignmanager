@@ -1,6 +1,6 @@
 # Campaign Manager
 
-Next.js app for managing campaigns with CSV import, dynamic grid (any CSV columns), and Dark Weeks. **Data is stored only in Supabase** (tables and API); no other database or ORM is used.
+Next.js app for managing campaigns with dynamic grid and Dark Weeks. **Data is stored only in Supabase** (tables and API); no other database or ORM is used.
 
 ## Setup
 
@@ -12,10 +12,6 @@ Next.js app for managing campaigns with CSV import, dynamic grid (any CSV column
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from Project Settings → API → anon public (needed for login)
    - `SUPABASE_SERVICE_ROLE_KEY` — from Project Settings → API → service_role (secret)
 5. Create a user: **Authentication → Users → Add user** (email + password), then sign in at `/login`.
-
-## CSV Import
-
-Use **Load CSV** then **Import to database** in the app. Supports any CSV; stores full row in `csvData` and maps Start/End dates (including M/D/YYYY). Columns such as Name, Start, End, and Impressions Goal are normalized automatically.
 
 ## Dev
 

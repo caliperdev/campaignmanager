@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export type MonitorByDimensionRow = {
   dimensionValue: string;
   sumImpressions: number;
-  activeCampaignCount: number;
+  activeOrderCount: number;
 };
 
 /**

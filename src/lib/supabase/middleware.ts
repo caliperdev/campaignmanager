@@ -41,7 +41,7 @@ export async function updateSession(request: NextRequest) {
     );
     const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
     const isReadOnlyUser = !fullAccess.has(userEmail) && !!configEmail && userEmail === configEmail;
-    url.pathname = isReadOnlyUser ? "/monitor" : "/home";
+    url.pathname = isReadOnlyUser ? "/dashboard" : "/home";
     return NextResponse.redirect(url);
   }
 
@@ -51,9 +51,9 @@ export async function updateSession(request: NextRequest) {
   );
   const configEmail = (process.env.READ_ONLY_MONITOR_EMAIL ?? "").trim().toLowerCase();
   const isReadOnlyUser = !fullAccess.has(userEmail) && !!configEmail && userEmail === configEmail;
-  if (isReadOnlyUser && !isPublic && !isShare && path !== "/monitor") {
+  if (isReadOnlyUser && !isPublic && !isShare && path !== "/dashboard") {
     const url = request.nextUrl.clone();
-    url.pathname = "/monitor";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

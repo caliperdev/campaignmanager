@@ -12,23 +12,23 @@ type RefreshState =
   | { phase: "error"; message: string };
 
 type Props = {
-  campaignId?: string;
+  orderId?: string;
   sourceId?: string;
   onRefreshCached?: () => Promise<void>;
 };
 
-export default function RefreshMonitorButton({ campaignId, sourceId, onRefreshCached }: Props) {
+export default function RefreshMonitorButton({ orderId, sourceId, onRefreshCached }: Props) {
   const router = useRouter();
   const [state, setState] = useState<RefreshState>({ phase: "idle" });
 
   const handleRefresh = useCallback(async () => {
     if (state.phase === "running") return;
 
-    if (campaignId && sourceId && onRefreshCached) {
-      setState({ phase: "running", message: "Re-computing from campaign + source…", percent: 0 });
+    if (orderId && sourceId && onRefreshCached) {
+      setState({ phase: "running", message: "Re-computing from order + source…", percent: 0 });
       try {
         const res = await fetch(
-          `/api/monitor-refresh-cache?ct=${encodeURIComponent(campaignId)}&dt=${encodeURIComponent(sourceId)}`,
+          `/api/monitor-refresh-cache?ct=${encodeURIComponent(orderId)}&dt=${encodeURIComponent(sourceId)}`,
           { method: "POST" }
         );
         if (!res.ok) {
@@ -95,7 +95,7 @@ export default function RefreshMonitorButton({ campaignId, sourceId, onRefreshCa
         return prev;
       });
     };
-  }, [router, campaignId, sourceId, onRefreshCached]);
+  }, [router, orderId, sourceId, onRefreshCached]);
 
   const isRunning = state.phase === "running";
   const showBar = state.phase === "running" || state.phase === "done" || state.phase === "error";

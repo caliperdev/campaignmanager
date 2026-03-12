@@ -2,31 +2,24 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useReducer } from "react";
-import { updateCampaign, deleteCampaign, updateSource, deleteSource } from "@/lib/table-actions";
-import type { Campaign, Source } from "@/db/schema";
-import CsvImportButton from "@/components/CsvImportButton";
-import SourceCsvImportButton from "@/components/SourceCsvImportButton";
+import { useReducer, useState } from "react";
+import { updateOrder, deleteOrder, updateSource, deleteSource } from "@/lib/table-actions";
+import { DebouncedSearchInput } from "@/components/DebouncedSearchInput";
+import { useConfirm } from "@/components/ConfirmModal";
+import { ItemRowActions } from "@/components/ItemRowActions";
+import type { Order, Source } from "@/db/schema";
 import DataverseImportButton from "@/components/DataverseImportButton";
-
-function Icon({ children }: { children: React.ReactNode }) {
-  return (
-    <svg viewBox="0 0 24 24" style={{ width: 20, height: 20, fill: "currentColor", opacity: 0.8 }}>
-      {children}
-    </svg>
-  );
-}
 
 type EditState = {
   itemId: string | null;
   name: string;
 };
 
-type Item = Campaign | Source;
+type Item = Order | Source;
 
 export interface BoardListPageProps {
   title: string;
-  section: "campaign" | "sources";
+  section: "orders" | "sources";
   basePath: string;
   initialItems: Item[];
 }
@@ -38,6 +31,8 @@ export function BoardListPage({
   initialItems,
 }: BoardListPageProps) {
   const router = useRouter();
+  const { showConfirm } = useConfirm();
+  const [editError, setEditError] = useState<string | null>(null);
   const [edit, setEdit] = useReducer(
     (s: EditState, a: { type: "start"; item: Item } | { type: "setName"; value: string } | { type: "close" }) =>
       a.type === "start"
@@ -50,74 +45,77 @@ export function BoardListPage({
 
   const handleSaveEdit = async () => {
     if (!edit.itemId) return;
-    const name = edit.name.trim() || (section === "campaign" ? "Untitled" : "Source");
-    const ok = section === "campaign"
-      ? await updateCampaign(edit.itemId, { name })
-      : await updateSource(edit.itemId, { name });
-    if (ok) {
-      router.refresh();
-      setEdit({ type: "close" });
+    setEditError(null);
+    const name = edit.name.trim() || (section === "sources" ? "Source" : "Untitled");
+    if (section === "sources") {
+      const ok = await updateSource(edit.itemId, { name });
+      if (ok) {
+        router.refresh();
+        setEdit({ type: "close" });
+      } else {
+        setEditError("Failed to update. Please try again.");
+      }
+    } else {
+      const result = await updateOrder(edit.itemId, { name });
+      if (result.success) {
+        router.refresh();
+        setEdit({ type: "close" });
+      } else {
+        setEditError(result.error ?? "Failed to update. Please try again.");
+      }
     }
   };
-
-  const handleDelete = async (e: React.MouseEvent, item: Item) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!window.confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
-    try {
-      const ok = section === "campaign" ? await deleteCampaign(item.id) : await deleteSource(item.id);
-      if (ok) router.refresh();
-      else window.alert("Failed to delete. Please try again.");
-    } catch (err) {
-      console.error("Delete error:", err);
-      window.alert("Failed to delete. Please try again.");
-    }
-  };
-
-  const canEditDelete = section === "campaign";
 
   return (
-    <main
-      className="page-responsive-padding"
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--bg-primary)",
-      }}
-    >
-      <div className="page-header-responsive" style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          {title}
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {section === "campaign" && <CsvImportButton />}
-          {section === "sources" && <SourceCsvImportButton />}
-          {section === "sources" && <DataverseImportButton />}
-        </div>
-      </div>
+    <main className="main-content">
+      <header className="top-bar">
+          <button className="section-tab active">All {title}</button>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            <DebouncedSearchInput placeholder={`Search ${title.toLowerCase()}…`} />
+            {section === "orders" && (
+              <Link
+                href="/orders/new"
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: "white",
+                  background: "var(--accent-mint)",
+                  border: "none",
+                  borderRadius: "var(--radius-s)",
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                New order
+              </Link>
+            )}
+            {section === "sources" && <DataverseImportButton />}
+          </div>
+      </header>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="campaign-list" style={{ display: "flex", flexDirection: "column", gap: "var(--space-s)" }}>
         {initialItems.length === 0 && (
-          <p style={{ color: "var(--text-tertiary)", fontSize: 14 }}>
-            {section === "campaign" ? "No campaigns yet. Import a CSV to create one." : "No sources yet. Import a CSV to create one."}
+          <p style={{ color: "var(--text-tertiary-new)", fontSize: 14 }}>
+            {section === "sources" ? "No sources yet. Connect Dataverse or add one to get started." : "No orders yet. Create a new order to get started."}
+          </p>
+        )}
+        {initialItems.length > 0 && (
+          <p style={{ margin: "16px 0 8px", fontSize: 13, color: "var(--text-secondary)" }}>
+            {title} ({initialItems.length})
           </p>
         )}
         {initialItems.map((item) => (
-          <div
-            key={item.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border-light)",
-              borderRadius: "var(--radius-md)",
-              overflow: "hidden",
-            }}
-          >
-            {edit.itemId === item.id ? (
-              <div style={{ flex: 1, padding: 16 }}>
-                <label htmlFor={`edit-name-${item.id}`} style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", marginBottom: 4 }}>
+          edit.itemId === item.id ? (
+            <div key={item.id} className="campaign-row campaign-row--orders" style={{ display: "block" }}>
+              <div style={{ padding: "var(--space-m) 0" }}>
+                {editError && (
+                  <div style={{ marginBottom: 12, padding: "8px 12px", background: "rgba(220, 53, 69, 0.1)", border: "1px solid rgba(220, 53, 69, 0.3)", borderRadius: "var(--radius-sm)", color: "var(--text-primary-new)", fontSize: 13 }}>
+                    {editError}
+                  </div>
+                )}
+                <label htmlFor={`edit-name-${item.id}`} style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-tertiary-new)", textTransform: "uppercase", marginBottom: 4 }}>
                   Name
                 </label>
                 <input
@@ -130,10 +128,10 @@ export function BoardListPage({
                     width: "100%",
                     padding: "8px 12px",
                     fontSize: 14,
-                    border: "1px solid var(--border-light)",
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg-primary)",
-                    color: "var(--text-primary)",
+                    border: "1px solid #E5E7EB",
+                    borderRadius: "var(--radius-s)",
+                    background: "var(--bg-card)",
+                    color: "var(--text-primary-new)",
                     marginBottom: 12,
                   }}
                 />
@@ -147,9 +145,9 @@ export function BoardListPage({
                       fontSize: 13,
                       fontWeight: 500,
                       color: "white",
-                      background: "var(--accent-dark)",
+                      background: "var(--accent-mint)",
                       border: "none",
-                      borderRadius: "var(--radius-sm)",
+                      borderRadius: "var(--radius-s)",
                       cursor: "pointer",
                     }}
                   >
@@ -157,15 +155,15 @@ export function BoardListPage({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEdit({ type: "close" })}
+                    onClick={() => { setEdit({ type: "close" }); setEditError(null); }}
                     style={{
                       padding: "8px 16px",
                       fontSize: 13,
                       fontWeight: 500,
-                      color: "var(--text-secondary)",
+                      color: "var(--text-secondary-new)",
                       background: "transparent",
-                      border: "1px solid var(--border-light)",
-                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "var(--radius-s)",
                       cursor: "pointer",
                     }}
                   >
@@ -173,71 +171,49 @@ export function BoardListPage({
                   </button>
                 </div>
               </div>
-            ) : (
-              <>
-                <Link
-                  href={`${basePath}/${item.id}`}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "14px 20px",
-                    color: "var(--text-primary)",
-                    textDecoration: "none",
-                    fontSize: 15,
-                    fontWeight: 500,
-                  }}
-                >
-                  <Icon><path d="M3 5v14h18V5H3zm4 2v2H5V7h2zm-2 6v-2h2v2H5zm0 2v2h2v-2H5zm4-8h10v10H9V7zm2 2v6h6V9h-6z" /></Icon>
-                  <span style={{ marginLeft: 12 }}>{item.name}</span>
-                </Link>
-                {canEditDelete && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setEdit({ type: "start", item })}
-                      aria-label={`Edit ${item.name}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 40,
-                        height: 40,
-                        padding: 0,
-                        border: "none",
-                        background: "transparent",
-                        color: "var(--text-tertiary)",
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></Icon>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDelete(e, item)}
-                      aria-label={`Delete ${item.name}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: 40,
-                        height: 40,
-                        padding: 0,
-                        border: "none",
-                        background: "transparent",
-                        color: "var(--text-tertiary)",
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" /></Icon>
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div key={item.id} className="campaign-row campaign-row--orders">
+              <Link
+                href={`${basePath}/${item.id}`}
+                className="campaign-row--orders-link"
+                style={{
+                  gridColumn: "1 / span 6",
+                  display: "grid",
+                  gridTemplateColumns: "subgrid",
+                  alignItems: "center",
+                  textDecoration: "none",
+                  color: "inherit",
+                  minWidth: 0,
+                }}
+              >
+                <div className="status-dot" />
+                <div className="row-meta">
+                  <div className="row-primary-text">{item.name}</div>
+                  <div className="row-sub-text">{section === "sources" ? "Source" : "Programmatic • Display"}</div>
+                </div>
+                <div className="row-meta" />
+                <div className="row-meta" />
+                <div className="row-meta" />
+                <div className="row-meta" />
+              </Link>
+              <div style={{ gridColumn: "7", display: "flex", justifyContent: "flex-end" }}>
+                <ItemRowActions
+                    editHref={`${basePath}/${item.id}`}
+                    onEdit={() => { setEditError(null); setEdit({ type: "start", item }); }}
+                    onDelete={async () => {
+                      const ok = await showConfirm({ message: `Delete "${item.name}"? This cannot be undone.`, variant: "danger", confirmLabel: "Delete" });
+                      if (!ok) return;
+                      const done = section === "sources" ? await deleteSource(item.id) : await deleteOrder(item.id);
+                      if (done) router.refresh();
+                      else window.alert("Failed to delete. Please try again.");
+                    }}
+                    itemName={item.name}
+                    skipConfirm
+                  />
+                </div>
+            </div>
+          )
         ))}
       </div>
     </main>

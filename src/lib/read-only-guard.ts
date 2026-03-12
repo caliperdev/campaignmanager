@@ -47,9 +47,9 @@ export async function isReadOnlyMonitorUser(): Promise<boolean> {
   return userEmail === configEmail;
 }
 
-/** Redirect read-only users to /monitor. Call at the top of any protected page server component (except /monitor). */
+/** Redirect read-only users to /dashboard. Call at the top of any protected page server component (except /dashboard). */
 export async function enforceNotReadOnly(): Promise<void> {
   if (await isReadOnlyMonitorUser()) {
-    redirect("/monitor");
+    redirect("/dashboard");
   }
 }

@@ -1,17 +1,14 @@
 import { notFound } from "next/navigation";
-import { getCampaign, getDynamicTableChunkWithCount } from "@/lib/tables";
-import { TableView } from "@/components/TableView";
+import { getCampaign, getAdvertiser, getOrdersForCampaign } from "@/lib/tables";
 import { enforceNotReadOnly } from "@/lib/read-only-guard";
-import type { DynamicTableRow } from "@/lib/tables";
-
-const INITIAL_PAGE_SIZE = 500;
+import { CampaignOrdersList } from "./CampaignOrdersList";
 
 export const metadata = {
   title: "Campaign",
-  description: "Campaign view",
+  description: "Campaign orders",
 };
 
-export default async function CampaignBoardPage({
+export default async function CampaignDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -21,19 +18,12 @@ export default async function CampaignBoardPage({
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
 
-  const chunk = await getDynamicTableChunkWithCount(
-    campaign.dynamicTableName,
-    0,
-    INITIAL_PAGE_SIZE,
-  );
+  const [orderGroups, advertiser] = await Promise.all([
+    getOrdersForCampaign(id),
+    getAdvertiser(campaign.advertiserId),
+  ]);
 
   return (
-    <TableView
-      item={campaign}
-      basePath="/campaigns"
-      initialDynamicRows={chunk.rows}
-      dynamicTotal={chunk.total}
-      readOnly={false}
-    />
+    <CampaignOrdersList campaign={campaign} advertiser={advertiser} orderGroups={orderGroups} />
   );
 }

@@ -5,10 +5,12 @@ import { createPortal } from "react-dom";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import { Button } from "@/components/ui";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { useLoading } from "@/components/LoadingOverlay";
 import ImpressionsChart, { type ChartMeasureGroup } from "./ImpressionsChart";
 import MonitorPickers from "./MonitorPickers";
-import RefreshCampaignButton from "./RefreshCampaignButton";
+import RefreshOrderButton from "./RefreshOrderButton";
 import RefreshMonitorButton from "./RefreshMonitorButton";
+import PlacementsModal from "./PlacementsModal";
 type NavItem = { id: string; name: string };
 
 const tableBorderRadius = "var(--radius-md)";
@@ -72,16 +74,17 @@ const colById = Object.fromEntries(IMPRESSIONS_TABLE_COLUMNS.map((c) => [c.id, c
 type MonitorByDimensionRow = {
   dimensionValue: string;
   sumImpressions: number;
-  activeCampaignCount: number;
+  activeOrderCount: number;
 };
 
 type Props = {
   initialData: MonitorDataPayload;
   ct?: string | null;
   dt?: string | null;
-  campaignTables: NavItem[];
+  orderTables: NavItem[];
   dataTables: NavItem[];
   dimensionOptions?: string[];
+  ioOptions?: string[];
   readOnly?: boolean;
   forceGlobal?: boolean;
 };
@@ -90,9 +93,10 @@ export default function MonitorContent({
   initialData,
   ct = null,
   dt = null,
-  campaignTables,
+  orderTables,
   dataTables,
   dimensionOptions = [],
+  ioOptions = [],
   readOnly = false,
   forceGlobal = false,
 }: Props) {
@@ -109,9 +113,12 @@ export default function MonitorContent({
   const [monitorView, setMonitorView] = useState<"time" | "dimension">("time");
   const [timeGroup, setTimeGroup] = useState<"yearMonth" | "quarter" | "year">("yearMonth");
   const [chartMeasureGroup, setChartMeasureGroup] = useState<ChartMeasureGroup>("impressions");
+  const [ioFilter, setIoFilter] = useState<string>("");
   const [dimensionColumn, setDimensionColumn] = useState("");
   const [dimensionRows, setDimensionRows] = useState<MonitorByDimensionRow[]>([]);
   const [dimensionLoading, setDimensionLoading] = useState(false);
+  const [placementsModalOpen, setPlacementsModalOpen] = useState(false);
+  const { setLoading } = useLoading();
 
   useClickOutside(columnsRef, () => setColumnsOpen(false), columnsOpen);
 
@@ -197,13 +204,15 @@ export default function MonitorContent({
     const params = new URLSearchParams();
     if (ct) params.set("ct", ct);
     if (dt) params.set("dt", dt);
+    if (forceGlobal) params.set("refresh", "1");
+    if (forceGlobal && ioFilter) params.set("io", ioFilter);
     const res = await fetch(`/api/monitor-data?${params.toString()}`);
     if (!res.ok) throw new Error("Failed to fetch monitor data");
     const payload: MonitorDataPayload = await res.json();
     setData(payload);
   }
 
-  const { rows, campaignRows, totalUniqueCampaignCount, totalImpressions, totalDataImpressions, totalDeliveredLines, totalMediaCost, totalMediaFees, totalCeltraCost, totalTotalCost, totalBookedRevenue } = data;
+  const { rows, orderRows, totalUniqueOrderCount, totalImpressions, totalDataImpressions, totalDeliveredLines, totalMediaCost, totalMediaFees, totalCeltraCost, totalTotalCost, totalBookedRevenue } = data;
 
   const aggregatedRows = useMemo(() => {
     if (timeGroup === "yearMonth") return rows;
@@ -216,7 +225,7 @@ export default function MonitorContent({
         byKey.set(key, { ...r, yearMonth: key });
       } else {
         existing.sumImpressions += r.sumImpressions;
-        existing.activeCampaignCount += r.activeCampaignCount;
+        existing.activeOrderCount += r.activeOrderCount;
         existing.dataImpressions += r.dataImpressions;
         existing.deliveredLines += r.deliveredLines;
         existing.mediaCost += r.mediaCost;
@@ -250,14 +259,11 @@ export default function MonitorContent({
 
   return (
     <main
+      className="main-content"
       style={{
         flex: 1,
         minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
-        padding: "32px",
         background: "var(--bg-primary)",
-        overflow: "auto",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
@@ -271,19 +277,19 @@ export default function MonitorContent({
               margin: 0,
             }}
           >
-            Monitor
+            Dashboard
           </h1>
           <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 8, maxWidth: 520 }}>
-            Left join campaign (Supabase) with source (Dataverse or CSV). Select campaign table and source to view booked impressions, delivered impressions, costs, and margin by month.
+            Placements with Insertion Order ID - DSP joined to DSP source. Booked impressions, delivered impressions, costs, and margin by month.
           </p>
           {forceGlobal ? (
             <p style={{ fontSize: 13, color: "var(--text-tertiary)", marginTop: 16 }}>
-              Viewing all campaign and source tables.
+              Viewing all placements with DSP link.
             </p>
           ) : (
             <div style={{ marginTop: 16, display: "flex", gap: 24, alignItems: "flex-end", flexWrap: "wrap" }}>
               <MonitorPickers
-                campaignTables={campaignTables.map((t) => ({ id: t.id, name: t.name }))}
+                orderTables={orderTables.map((t) => ({ id: t.id, name: t.name }))}
                 dataTables={dataTables.map((t) => ({ id: t.id, name: t.name }))}
                 selectedCt={ct}
                 selectedDt={dt}
@@ -291,11 +297,25 @@ export default function MonitorContent({
             </div>
           )}
         </div>
-        {!readOnly && (
+        {(forceGlobal || !readOnly) && (
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
-          <RefreshCampaignButton onRefreshCached={refreshFromCache} />
-          <RefreshMonitorButton campaignId={ct ?? undefined} sourceId={dt ?? undefined} onRefreshCached={refreshFromCache} />
+          {forceGlobal && (
+            <Button variant="secondary" onClick={() => setPlacementsModalOpen(true)}>
+              View placements
+            </Button>
+          )}
+          {!readOnly && (forceGlobal ? (
+            <RefreshOrderButton onRefreshCached={refreshFromCache} />
+          ) : (
+            <>
+              <RefreshOrderButton onRefreshCached={refreshFromCache} />
+              <RefreshMonitorButton orderId={ct ?? undefined} sourceId={dt ?? undefined} onRefreshCached={refreshFromCache} />
+            </>
+          ))}
         </div>
+        )}
+        {forceGlobal && (
+          <PlacementsModal open={placementsModalOpen} onClose={() => setPlacementsModalOpen(false)} />
         )}
       </div>
 
@@ -349,6 +369,40 @@ export default function MonitorContent({
               )}
             </div>
           </div>
+          {forceGlobal && ioOptions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Filter</span>
+              <select
+                value={ioFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setIoFilter(v);
+                  setLoading(true);
+                  const params = new URLSearchParams();
+                  params.set("refresh", "1");
+                  if (v) params.set("io", v);
+                  fetch(`/api/monitor-data?${params.toString()}`)
+                    .then((res) => (res.ok ? res.json() : null))
+                    .then((payload) => payload && setData(payload))
+                    .finally(() => setLoading(false));
+                }}
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  border: "1px solid var(--border-light)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg-primary)",
+                  color: "var(--text-primary)",
+                  minWidth: 180,
+                }}
+              >
+                <option value="">All insertion orders</option>
+                {ioOptions.map((io) => (
+                  <option key={io} value={io}>{io}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {monitorView === "time" && (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -516,12 +570,12 @@ export default function MonitorContent({
                     </tr>
                   </thead>
                   <tbody>
-                    {aggregatedRows.length === 0 ? (
+                      {aggregatedRows.length === 0 ? (
                       <tr>
                         <td colSpan={visibleColumns.length + 1} style={{ ...tdBase, color: "var(--text-secondary)", textAlign: "center" }}>
                           {ct && dt
                             ? "No data. Ensure campaign and source have matching Insertion Order ID / GID columns, then Refresh."
-                            : "No data. Add campaigns or use Sources import to see impressions by month."}
+                            : "No data. Add placements with Insertion Order ID - DSP linked to DSP source."}
                         </td>
                       </tr>
                     ) : (
@@ -530,7 +584,7 @@ export default function MonitorContent({
                           {visibleColumns.map((col) => {
                             if (col.id === "month") return <td key={col.id} style={col.tdStyle}>{row.yearMonth}</td>;
                             if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{row.sumImpressions.toLocaleString("en-US")}</td>;
-                            if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{row.activeCampaignCount}</td>;
+                            if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{row.activeOrderCount}</td>;
                             if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{row.dataImpressions > 0 ? row.dataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
                             if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{row.deliveredLines > 0 ? row.deliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                             if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{row.mediaCost > 0 ? `$${row.mediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
@@ -564,7 +618,7 @@ export default function MonitorContent({
                 </table>
               </div>
               {aggregatedRows.length > 0 && (
-                <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", color: "var(--text-primary)" }} aria-label="Monitor totals">
+                <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", color: "var(--text-primary)" }} aria-label="Dashboard totals">
                   <colgroup>
                     {visibleColumns.map((col) => (
                       <col key={col.id} style={{ width: col.width }} />
@@ -576,7 +630,7 @@ export default function MonitorContent({
                       {visibleColumns.map((col) => {
                         if (col.id === "month") return <td key={col.id} style={col.tdStyle}>Total</td>;
                         if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{totalImpressions.toLocaleString("en-US")}</td>;
-                        if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{totalUniqueCampaignCount}</td>;
+                        if (col.id === "campaigns") return <td key={col.id} style={col.tdStyle}>{totalUniqueOrderCount}</td>;
                         if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{totalDataImpressions > 0 ? totalDataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
                         if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{totalDeliveredLines > 0 ? totalDeliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                         if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{totalMediaCost > 0 ? `$${totalMediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
@@ -670,7 +724,7 @@ export default function MonitorContent({
                     <tr key={r.dimensionValue} style={{ borderBottom: "1px solid var(--border-light)" }}>
                       <td style={tdBase}>{r.dimensionValue}</td>
                       <td style={goldTd}>{r.sumImpressions.toLocaleString("en-US")}</td>
-                      <td style={goldTd}>{r.activeCampaignCount}</td>
+                      <td style={goldTd}>{r.activeOrderCount}</td>
                     </tr>
                   ))
                 )}

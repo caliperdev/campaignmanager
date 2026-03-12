@@ -24,4 +24,4 @@ Or run only this script via CLI:
 supabase db execute -f supabase/scripts/add-campaigns-table.sql
 ```
 
-After the table exists, add campaigns again via the app (Import CSV or New Campaign) or by inserting rows in the SQL Editor.
+After the table exists, add campaigns again via the app (New order or Connect Dataverse) or by inserting rows in the SQL Editor.

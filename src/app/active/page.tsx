@@ -2,7 +2,7 @@ import { enforceNotReadOnly } from "@/lib/read-only-guard";
 
 export const metadata = {
   title: "Active",
-  description: "All active campaigns",
+  description: "All active orders",
 };
 
 export default async function ActivePage() {
