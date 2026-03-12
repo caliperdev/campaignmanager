@@ -16,16 +16,24 @@ const DASHBOARD_CACHE_TAG = "dashboard-placements-dsp";
 const DATE_COLUMNS = ["cr4fe_date", "cr4fe_reportdate", "report_date", "reportdate", "ReportDate", "date"];
 const IMPRESSIONS_COLUMNS = ["cr4fe_impressioncount", "cr4fe_impressions", "impressions", "impression_count", "impressioncount", "delivered_impressions"];
 const MEDIA_COST_COLUMNS = ["cr4fe_totalmediacost", "total_media_cost", "totalmediacost", "media_cost", "mediacost"];
+const MEDIA_FEES_COLUMNS = ["cr4fe_mediafees", "media_fees", "mediafees", "Media Fees"];
+const ADVERTISER_COLUMNS = ["cr4fe_advertiser", "Advertiser", "advertiser"];
 const IO_SOURCE_COLUMNS = ["cr4fe_insertionordergid", "cr4fe_insertionorderid", "insertion_order_gid", "insertion order gid", "InsertionOrderGID"];
 
+/** Media fees by advertiser (from migration 013). Applied when no media_fees column in source. */
+const MEDIA_FEES_BY_ADVERTISER: Record<string, number> = {
+  "ND - HA Usd - Buho": 0.28,
+  "ND - BM Usd - Buho Media": 0.08,
+};
+
 type PlacementRow = {
-  id: number;
   order_id: string;
   insertion_order_id_dsp: string | null;
   start_date: string | null;
   end_date: string | null;
   impressions: string | null;
   cpm_adops: string | null;
+  cpm_celtra: string | null;
   dark_days: string | null;
   per_day_impressions: string | null;
 };
@@ -132,7 +140,7 @@ function getVal(row: Record<string, unknown>, col: string): string {
 async function getPlacementsWithIoDsp(ioFilter?: string | null): Promise<PlacementRow[]> {
   let q = supabase
     .from(PLACEMENTS_TABLE)
-    .select("id, order_id, insertion_order_id_dsp, start_date, end_date, impressions, cpm_adops, dark_days, per_day_impressions")
+    .select("order_id, insertion_order_id_dsp, start_date, end_date, impressions, cpm_adops, cpm_celtra, dark_days, per_day_impressions")
     .not("insertion_order_id_dsp", "is", null)
     .neq("insertion_order_id_dsp", "");
   if (ioFilter && ioFilter.trim()) {
@@ -219,6 +227,8 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
       const dateCol = findColumn(sourceData.rows[0] as Record<string, unknown>, DATE_COLUMNS);
       const imprCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IMPRESSIONS_COLUMNS);
       const mediaCostCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_COST_COLUMNS);
+      const mediaFeesCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_FEES_COLUMNS);
+      const advertiserCol = findColumn(sourceData.rows[0] as Record<string, unknown>, ADVERTISER_COLUMNS);
       const ioCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IO_SOURCE_COLUMNS);
 
       if (!dateCol || !imprCol || !mediaCostCol || !ioCol) return [];
@@ -226,6 +236,7 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
       const bookedByIoAndMonth = computeBookedByIoAndMonth(placements);
 
       const ioToCpmAdops = new Map<string, number>();
+      const ioToCpmCeltra = new Map<string, number>();
       const ioToOrderIds = new Map<string, Set<string>>();
       for (const p of placements) {
         const io = String(p.insertion_order_id_dsp ?? "").trim();
@@ -233,11 +244,15 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
         if (!ioToCpmAdops.has(io)) {
           ioToCpmAdops.set(io, parseNum(p.cpm_adops));
         }
+        if (!ioToCpmCeltra.has(io)) {
+          ioToCpmCeltra.set(io, parseNum(p.cpm_celtra));
+        }
         if (!ioToOrderIds.has(io)) ioToOrderIds.set(io, new Set());
         ioToOrderIds.get(io)!.add(p.order_id);
       }
 
-      const byMonthIo = new Map<string, Map<string, { delivered: number; mediaCost: number }>>();
+      type IoAgg = { delivered: number; mediaCost: number; mediaFees: number };
+      const byMonthIo = new Map<string, Map<string, IoAgg>>();
 
       for (const row of sourceData.rows) {
         const r = row as Record<string, unknown>;
@@ -256,12 +271,20 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
 
         let agg = byIo.get(io);
         if (!agg) {
-          agg = { delivered: 0, mediaCost: 0 };
+          agg = { delivered: 0, mediaCost: 0, mediaFees: 0 };
           byIo.set(io, agg);
         }
 
+        const rowMediaCost = parseNum(r[mediaCostCol]);
         agg.delivered += Math.floor(parseNum(r[imprCol]));
-        agg.mediaCost += parseNum(r[mediaCostCol]);
+        agg.mediaCost += rowMediaCost;
+        if (mediaFeesCol) {
+          agg.mediaFees += parseNum(r[mediaFeesCol]);
+        } else if (advertiserCol) {
+          const advertiser = getVal(r, advertiserCol).trim();
+          const rate = MEDIA_FEES_BY_ADVERTISER[advertiser];
+          if (rate != null) agg.mediaFees += rowMediaCost * rate;
+        }
       }
 
       const allMonths = new Set<string>(byMonthIo.keys());
@@ -276,18 +299,23 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
         let bookedImpr = 0;
         let deliveredImpr = 0;
         let mediaCost = 0;
+        let mediaFees = 0;
+        let celtraCost = 0;
         let bookedRevenue = 0;
         const ioIdsInMonth = new Set<string>();
         const orderIdsInMonth = new Set<string>();
 
         for (const io of ioIds) {
-          const agg = byIo.get(io) ?? { delivered: 0, mediaCost: 0 };
+          const agg = byIo.get(io) ?? { delivered: 0, mediaCost: 0, mediaFees: 0 };
           const cpmAdops = ioToCpmAdops.get(io) ?? 0;
+          const cpmCeltra = ioToCpmCeltra.get(io) ?? 0;
           const bookedForIo = bookedByIoAndMonth.get(io)?.get(ym) ?? 0;
 
           bookedImpr += bookedForIo;
           deliveredImpr += agg.delivered;
           mediaCost += agg.mediaCost;
+          mediaFees += agg.mediaFees;
+          celtraCost += (agg.delivered / 1000) * cpmCeltra;
           bookedRevenue += (bookedForIo / 1000) * cpmAdops;
           if (agg.delivered > 0 || bookedForIo > 0) {
             ioIdsInMonth.add(io);
@@ -295,7 +323,6 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
           }
         }
 
-        const celtraCost = 0;
         const totalCost = mediaCost + celtraCost;
 
         result.push({
@@ -305,8 +332,8 @@ export async function getPlacementsWithDspAggregated(ioFilter?: string | null): 
           dataImpressions: Math.floor(deliveredImpr),
           deliveredLines: ioIdsInMonth.size,
           mediaCost: Math.round(mediaCost * 100) / 100,
-          mediaFees: 0,
-          celtraCost: 0,
+          mediaFees: Math.round(mediaFees * 100) / 100,
+          celtraCost: Math.round(celtraCost * 100) / 100,
           totalCost: Math.round(totalCost * 100) / 100,
           bookedRevenue: Math.round(bookedRevenue * 100) / 100,
         });
