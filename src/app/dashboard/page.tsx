@@ -1,4 +1,4 @@
-import { getPlacementsWithDspAggregated, getDistinctInsertionOrderIds } from "@/lib/dashboard-placements-dsp";
+import { getDistinctInsertionOrderIds } from "@/lib/dashboard-placements-dsp";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import MonitorContent from "@/app/monitor/MonitorContent";
 import { isReadOnlyMonitorUser } from "@/lib/read-only-guard";
@@ -8,42 +8,29 @@ export const metadata = {
   description: "Dashboard and analytics",
 };
 
+/** Dashboard loads data only when user clicks Refresh. No initial fetch on page load. */
+const EMPTY_INITIAL_DATA: MonitorDataPayload = {
+  orderRows: [],
+  totalUniqueOrderCount: 0,
+  dataRows: [],
+  rows: [],
+  totalImpressions: 0,
+  totalDataImpressions: 0,
+  totalDeliveredLines: 0,
+  totalMediaCost: 0,
+  totalMediaFees: 0,
+  totalCeltraCost: 0,
+  totalTotalCost: 0,
+  totalBookedRevenue: 0,
+};
+
 export default async function DashboardPage() {
   const readOnly = await isReadOnlyMonitorUser();
-
-  const [rows, ioOptions] = await Promise.all([
-    getPlacementsWithDspAggregated(),
-    getDistinctInsertionOrderIds(),
-  ]);
-
-  const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
-  const totalDataImpressions = rows.reduce((acc, r) => acc + r.dataImpressions, 0);
-  const totalDeliveredLines = rows.reduce((acc, r) => acc + r.deliveredLines, 0);
-  const totalMediaCost = Math.round(rows.reduce((acc, r) => acc + r.mediaCost, 0) * 100) / 100;
-  const totalMediaFees = Math.round(rows.reduce((acc, r) => acc + r.mediaFees, 0) * 100) / 100;
-  const totalCeltraCost = Math.round(rows.reduce((acc, r) => acc + r.celtraCost, 0) * 100) / 100;
-  const totalTotalCost = Math.round(rows.reduce((acc, r) => acc + r.totalCost, 0) * 100) / 100;
-  const totalBookedRevenue = Math.round(rows.reduce((acc, r) => acc + r.bookedRevenue, 0) * 100) / 100;
-  const totalUniqueOrderCount = Math.max(...rows.map((r) => r.activeOrderCount), 0);
-
-  const initialData: MonitorDataPayload = {
-    orderRows: [],
-    totalUniqueOrderCount,
-    dataRows: [],
-    rows,
-    totalImpressions,
-    totalDataImpressions,
-    totalDeliveredLines,
-    totalMediaCost,
-    totalMediaFees,
-    totalCeltraCost,
-    totalTotalCost,
-    totalBookedRevenue,
-  };
+  const ioOptions = await getDistinctInsertionOrderIds();
 
   return (
     <MonitorContent
-      initialData={initialData}
+      initialData={EMPTY_INITIAL_DATA}
       orderTables={[]}
       dataTables={[]}
       ioOptions={ioOptions}
