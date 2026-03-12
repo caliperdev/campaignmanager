@@ -379,7 +379,6 @@ export default function MonitorContent({
                   setIoFilter(v);
                   setLoading(true);
                   const params = new URLSearchParams();
-                  params.set("refresh", "1");
                   if (v) params.set("io", v);
                   fetch(`/api/monitor-data?${params.toString()}`)
                     .then((res) => (res.ok ? res.json() : null))
