@@ -1207,27 +1207,28 @@ body.design-layout {
   min-width: 140px;
 }
 
-/* Placement filter pill: ~3/4 readonly copy area + ~1/4 dropdown */
-[data-dashboard] .placement-filter-pill {
+/* Filter pill: copy-on-click display + dropdown at right. One seamless pill. */
+[data-dashboard] .filter-pill {
   display: flex;
   align-items: stretch;
-  min-width: 200px;
+  width: 220px;
+  min-width: 220px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-full);
   background: var(--bg-primary);
   overflow: hidden;
   transition: border-color 0.2s var(--anim-ease), box-shadow 0.2s var(--anim-ease);
 }
-[data-dashboard] .placement-filter-pill:hover {
+[data-dashboard] .filter-pill:hover {
   border-color: var(--text-tertiary);
 }
-[data-dashboard] .placement-filter-pill:focus-within {
+[data-dashboard] .filter-pill:focus-within {
   outline: none;
   border-color: var(--accent-dark);
   box-shadow: 0 0 0 2px rgba(13, 43, 42, 0.12);
 }
-[data-dashboard] .placement-filter-pill-display {
-  flex: 3;
+[data-dashboard] .filter-pill-display {
+  flex: 1;
   min-width: 0;
   padding: 10px 14px 10px 16px;
   font-size: 14px;
@@ -1241,37 +1242,75 @@ body.design-layout {
   text-overflow: ellipsis;
   transition: background 0.15s var(--anim-ease);
 }
-[data-dashboard] .placement-filter-pill-display:hover {
+[data-dashboard] .filter-pill-display:hover {
   background: var(--bg-hover);
 }
-[data-dashboard] .placement-filter-pill-dropdown {
-  flex: 1;
-  min-width: 44px;
+[data-dashboard] .filter-pill-dropdown {
+  width: 40px;
+  min-width: 40px;
+  flex-shrink: 0;
   position: relative;
-  border-left: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.04) 0%, transparent 100%);
+  transition: background 0.15s var(--anim-ease);
 }
-[data-dashboard] .placement-filter-pill-select {
+[data-dashboard] .filter-pill-dropdown:hover {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.02) 100%);
+}
+[data-dashboard] .filter-pill-select {
   position: absolute;
   inset: 0;
   width: 100%;
   opacity: 0;
   cursor: pointer;
 }
-[data-dashboard] .placement-filter-pill-dropdown::after {
+[data-dashboard] .filter-pill-dropdown::after {
   content: "";
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  transform: translateY(-50%);
   width: 0;
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-top: 5px solid var(--text-secondary);
   pointer-events: none;
+  opacity: 0.7;
 }
-[data-dashboard] .placement-filter-pill-select:focus {
+[data-dashboard] .filter-pill-select:focus,
+[data-dashboard] .filter-pill-trigger:focus {
   outline: none;
+}
+[data-dashboard] .filter-pill-trigger {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+/* Custom dropdown list: same width as pill */
+[data-dashboard] .filter-pill-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-s);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+}
+[data-dashboard] .filter-pill-option {
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s var(--anim-ease);
+}
+[data-dashboard] .filter-pill-option:hover {
+  background: var(--bg-hover);
 }
 
 [data-dashboard] .dashboard-section-label {
