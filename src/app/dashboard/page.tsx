@@ -1,6 +1,6 @@
 import {
   getDistinctAdvertisersForDashboard,
-  getDashboardDataFromCache,
+  getDashboardData,
 } from "@/lib/dashboard-placements-dsp";
 import type { MonitorDataPayload } from "@/lib/monitor-data";
 import MonitorContent from "@/app/monitor/MonitorContent";
@@ -11,7 +11,7 @@ export const metadata = {
   description: "Dashboard and analytics",
 };
 
-/** Dashboard loads from dashboard_cache (persisted). Refresh button stores fresh data. */
+/** Dashboard loads from cache if DSP data present, otherwise computes fresh. */
 function rowsToPayload(rows: MonitorDataPayload["rows"]): MonitorDataPayload {
   const totalImpressions = rows.reduce((acc, r) => acc + r.sumImpressions, 0);
   const totalDataImpressions = rows.reduce((acc, r) => acc + r.dataImpressions, 0);
@@ -45,7 +45,7 @@ export default async function DashboardPage() {
   const readOnly = await isReadOnlyMonitorUser();
   const [advertiserOptions, rows] = await Promise.all([
     getDistinctAdvertisersForDashboard(),
-    getDashboardDataFromCache(),
+    getDashboardData(),
   ]);
 
   const initialData = rowsToPayload(rows);

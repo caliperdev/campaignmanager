@@ -115,16 +115,26 @@ export default function MonitorContent({
   const [monitorView, setMonitorView] = useState<"time" | "dimension">("time");
   const [timeGroup, setTimeGroup] = useState<"yearMonth" | "quarter" | "year">("yearMonth");
   const [chartMeasureGroup, setChartMeasureGroup] = useState<ChartMeasureGroup>("impressions");
-  const [ioFilter, setIoFilter] = useState<string>("");
   const [advertiserFilter, setAdvertiserFilter] = useState<string>("");
+  const [ioFilter, setIoFilter] = useState<string>("");
   const [placementFilter, setPlacementFilter] = useState<string>("");
+  const [placementIoIds, setPlacementIoIds] = useState<string[]>([]);
   const [ioOptions, setIoOptions] = useState<string[]>([]);
   const [placementOptions, setPlacementOptions] = useState<{ id: string; label: string }[]>([]);
   const [dimensionColumn, setDimensionColumn] = useState("");
   const [dimensionRows, setDimensionRows] = useState<MonitorByDimensionRow[]>([]);
   const [dimensionLoading, setDimensionLoading] = useState(false);
   const [placementsModalOpen, setPlacementsModalOpen] = useState(false);
+  const [placementCopyFeedback, setPlacementCopyFeedback] = useState(false);
   const { setLoading } = useLoading();
+
+  const handlePlacementCopy = () => {
+    const text = placementFilter || "All placements";
+    void navigator.clipboard.writeText(text).then(() => {
+      setPlacementCopyFeedback(true);
+      setTimeout(() => setPlacementCopyFeedback(false), 1200);
+    });
+  };
 
   useClickOutside(columnsRef, () => setColumnsOpen(false), columnsOpen);
 
@@ -136,7 +146,44 @@ export default function MonitorContent({
     if (forceGlobal) setLoading(false);
   }, [forceGlobal, setLoading]);
 
-  // Fetch insertion order options when advertiser changes (IOs scoped to that advertiser)
+  // Fetch placement options when advertiser changes (placements scoped to that advertiser)
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length) return;
+    const adv = advertiserFilter?.trim() || undefined;
+    const params = new URLSearchParams();
+    if (adv) params.set("advertiser", adv);
+    fetch(`/api/dashboard-placement-options?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((arr) => setPlacementOptions(Array.isArray(arr) ? arr : []));
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter]);
+
+  const [refreshCacheTrigger, setRefreshCacheTrigger] = useState(0);
+  // Prefetch all placement IO IDs for current advertiser (warms cache, avoids per-placement queries)
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length) return;
+    const adv = advertiserFilter?.trim() || undefined;
+    const currentPlacement = placementFilter;
+    const params = new URLSearchParams();
+    if (adv) params.set("advertiser", adv);
+    params.set("all", "1");
+    fetch(`/api/dashboard-placement-io-ids?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((map) => {
+        const m = map as Record<string, string[]>;
+        if (typeof m === "object" && m !== null) {
+          for (const [pid, ids] of Object.entries(m)) {
+            if (Array.isArray(ids) && pid) placementIoIdsCacheRef.current[`${adv ?? ""}|${pid}`] = ids;
+          }
+          if (currentPlacement && filtersRef.current.placementFilter === currentPlacement && Array.isArray(m[currentPlacement])) {
+            setPlacementIoIds(m[currentPlacement]);
+            setPlacementIoIdsSettled(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter, refreshCacheTrigger]);
+
+  // Fetch IO options when advertiser changes (for read-only display when "all placements")
   useEffect(() => {
     if (!forceGlobal || !advertiserOptions.length) return;
     const adv = advertiserFilter?.trim() || undefined;
@@ -145,37 +192,85 @@ export default function MonitorContent({
       .then((arr) => setIoOptions(Array.isArray(arr) ? arr : []));
   }, [forceGlobal, advertiserOptions.length, advertiserFilter]);
 
-  // Fetch placement options when advertiser/io changes (placements scoped to that advertiser/io)
-  useEffect(() => {
-    if (!forceGlobal || !advertiserOptions.length) return;
-    const adv = advertiserFilter?.trim() || undefined;
-    const io = ioFilter?.trim() || undefined;
-    const params = new URLSearchParams();
-    if (adv) params.set("advertiser", adv);
-    if (io) params.set("io", io);
-    fetch(`/api/dashboard-placement-options?${params.toString()}`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((arr) => setPlacementOptions(Array.isArray(arr) ? arr : []));
-  }, [forceGlobal, advertiserOptions.length, advertiserFilter, ioFilter]);
+  // Client cache for placement -> IO IDs. Key: `${advertiser}|${placement}`. Cleared on refresh.
+  const placementIoIdsCacheRef = useRef<Record<string, string[]>>({});
+  const placementFetchAbortRef = useRef<AbortController | null>(null);
+  const dataFetchIdRef = useRef(0);
+  const filtersRef = useRef({ placementFilter, advertiserFilter, ioFilter });
+  filtersRef.current = { placementFilter, advertiserFilter, ioFilter };
 
-  // Refetch dashboard data when filters change so displayed data matches selection
-  const filtersInitialized = useRef(false);
+  // Fetch IO IDs for selected placement (for display and data fetch). Uses cache, AbortController.
+  const [placementIoIdsSettled, setPlacementIoIdsSettled] = useState(false);
   useEffect(() => {
-    if (!forceGlobal || !advertiserOptions.length) return;
+    if (!forceGlobal || !placementFilter?.trim()) {
+      setPlacementIoIds([]);
+      setPlacementIoIdsSettled(true);
+      return;
+    }
+    const cacheKey = `${advertiserFilter}|${placementFilter}`;
+    const cached = placementIoIdsCacheRef.current[cacheKey];
+    if (cached) {
+      setPlacementIoIds(cached);
+      setPlacementIoIdsSettled(true);
+      return;
+    }
+    placementFetchAbortRef.current?.abort();
+    placementFetchAbortRef.current = new AbortController();
+    const signal = placementFetchAbortRef.current.signal;
+    const currentPlacement = placementFilter;
+    const currentAdvertiser = advertiserFilter;
+    setPlacementIoIds([]);
+    setPlacementIoIdsSettled(false);
+    const params = new URLSearchParams();
+    params.set("placement", placementFilter.trim());
+    if (advertiserFilter?.trim()) params.set("advertiser", advertiserFilter.trim());
+    fetch(`/api/dashboard-placement-io-ids?${params.toString()}`, { signal })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((arr) => {
+        const ids = Array.isArray(arr) ? arr : [];
+        if (placementFilter === currentPlacement && advertiserFilter === currentAdvertiser) {
+          placementIoIdsCacheRef.current[cacheKey] = ids;
+          setPlacementIoIds(ids);
+          setPlacementIoIdsSettled(true);
+        }
+      })
+      .catch((err) => {
+        if (err?.name !== "AbortError" && placementFilter === currentPlacement) setPlacementIoIdsSettled(true);
+      });
+    return () => placementFetchAbortRef.current?.abort();
+  }, [forceGlobal, placementFilter, advertiserFilter]);
+
+  // Refetch dashboard data when filters change. Only applies result if filters still match.
+  const filtersInitialized = useRef(false);
+  const effectiveIo: string = placementFilter && placementIoIds.length > 0 ? placementIoIds[0] : ioFilter;
+  const canFetchWithPlacement = !placementFilter || placementIoIdsSettled;
+  const ioSelectValue = placementFilter ? (placementIoIds[0] ?? "") : ioFilter;
+  useEffect(() => {
+    if (!forceGlobal || !advertiserOptions.length || !canFetchWithPlacement) return;
     if (!filtersInitialized.current) {
       filtersInitialized.current = true;
       return;
     }
+    const fetchId = ++dataFetchIdRef.current;
+    const fetchPlacement = placementFilter;
+    const fetchAdvertiser = advertiserFilter;
+    const fetchIo = effectiveIo;
     setLoading(true);
     const params = new URLSearchParams();
     if (advertiserFilter) params.set("advertiser", advertiserFilter);
-    if (ioFilter) params.set("io", ioFilter);
+    if (effectiveIo) params.set("io", effectiveIo);
     if (placementFilter) params.set("placement", placementFilter);
     fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((payload) => payload && setData(payload))
-      .finally(() => setLoading(false));
-  }, [forceGlobal, advertiserOptions.length, advertiserFilter, ioFilter, placementFilter, setLoading]);
+      .then((payload) => {
+        if (fetchId === dataFetchIdRef.current && filtersRef.current.placementFilter === fetchPlacement && filtersRef.current.advertiserFilter === fetchAdvertiser && effectiveIo === fetchIo) {
+          if (payload) setData(payload);
+        }
+      })
+      .finally(() => {
+        if (fetchId === dataFetchIdRef.current) setLoading(false);
+      });
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter, effectiveIo, placementFilter, canFetchWithPlacement, setLoading]);
 
   useEffect(() => {
     if (!columnsOpen || !columnsButtonRef.current) {
@@ -252,6 +347,8 @@ export default function MonitorContent({
   }
 
   async function refreshFromCache() {
+    placementIoIdsCacheRef.current = {};
+    setRefreshCacheTrigger((t) => t + 1);
     if (forceGlobal) {
       const refreshRes = await fetch("/api/dashboard-refresh-all", { method: "POST" });
       if (!refreshRes.ok) {
@@ -263,7 +360,7 @@ export default function MonitorContent({
     if (ct) params.set("ct", ct);
     if (dt) params.set("dt", dt);
     if (forceGlobal) {
-      if (ioFilter) params.set("io", ioFilter);
+      if (effectiveIo) params.set("io", effectiveIo);
       if (advertiserFilter) params.set("advertiser", advertiserFilter);
       if (placementFilter) params.set("placement", placementFilter);
     }
@@ -274,11 +371,13 @@ export default function MonitorContent({
   }
 
   async function refreshSelectionFromCache() {
+    placementIoIdsCacheRef.current = {};
+    setRefreshCacheTrigger((t) => t + 1);
     const refreshRes = await fetch("/api/dashboard-refresh-selection", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        io: ioFilter || undefined,
+        io: effectiveIo || undefined,
         advertiser: advertiserFilter || undefined,
         placement: placementFilter || undefined,
       }),
@@ -288,7 +387,7 @@ export default function MonitorContent({
       throw new Error(body?.error ?? "Failed to refresh selection");
     }
     const params = new URLSearchParams();
-    if (ioFilter) params.set("io", ioFilter);
+    if (effectiveIo) params.set("io", effectiveIo);
     if (advertiserFilter) params.set("advertiser", advertiserFilter);
     if (placementFilter) params.set("placement", placementFilter);
     const res = await fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" });
@@ -434,9 +533,10 @@ export default function MonitorContent({
                     className="dashboard-control"
                     value={advertiserFilter}
                     onChange={(e) => {
+                      setLoading(true);
                       setAdvertiserFilter(e.target.value);
-                      setIoFilter("");
                       setPlacementFilter("");
+                      setIoFilter("");
                     }}
                   >
                     <option value="">All advertisers</option>
@@ -445,36 +545,54 @@ export default function MonitorContent({
                     ))}
                   </select>
                 </div>
-                {ioOptions.length > 0 && (
-                  <div className="dashboard-control-group">
-                    <label htmlFor="io-filter">Insertion order</label>
-                    <select
-                      id="io-filter"
-                      className="dashboard-control"
-                      value={ioFilter}
-                      onChange={(e) => {
-                        setIoFilter(e.target.value);
-                        setPlacementFilter("");
-                      }}
-                    >
-                      <option value="">All insertion orders</option>
-                      {ioOptions.map((io) => (
-                        <option key={io} value={io}>{io}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 <div className="dashboard-control-group">
                   <label htmlFor="placement-filter">Placement ID</label>
+                  <div className="placement-filter-pill" data-dashboard>
+                    <button
+                      type="button"
+                      className="placement-filter-pill-display"
+                      onClick={handlePlacementCopy}
+                      title="Click to copy"
+                    >
+                      {placementCopyFeedback ? "Copied!" : (placementFilter || "All placements")}
+                    </button>
+                    <div className="placement-filter-pill-dropdown">
+                      <select
+                        id="placement-filter"
+                        className="placement-filter-pill-select"
+                        value={placementFilter}
+                        onChange={(e) => {
+                          setLoading(true);
+                          setPlacementFilter(e.target.value);
+                          setIoFilter("");
+                        }}
+                        aria-label="Select placement"
+                      >
+                        <option value="">All placements</option>
+                        {placementOptions.map((p) => (
+                          <option key={p.id} value={p.id}>{p.id}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="dashboard-control-group">
+                  <label htmlFor="io-filter">Insertion Order ID</label>
                   <select
-                    id="placement-filter"
+                    id="io-filter"
                     className="dashboard-control"
-                    value={placementFilter}
-                    onChange={(e) => setPlacementFilter(e.target.value)}
+                    value={ioSelectValue}
+                    onChange={(e) => {
+                      setLoading(true);
+                      setIoFilter(e.target.value);
+                      setPlacementFilter("");
+                    }}
+                    style={{ minWidth: 180 }}
+                    aria-label="Select insertion order"
                   >
-                    <option value="">All placements</option>
-                    {placementOptions.map((p) => (
-                      <option key={p.id} value={p.id}>{p.id}</option>
+                    <option value="">All insertion order IDs</option>
+                    {ioOptions.map((io) => (
+                      <option key={io} value={io}>{io}</option>
                     ))}
                   </select>
                 </div>

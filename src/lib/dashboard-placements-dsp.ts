@@ -7,7 +7,7 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { supabase } from "@/db";
 import { PLACEMENTS_TABLE, ORDERS_TABLE, CAMPAIGNS_TABLE } from "@/db/schema";
-import { getSourceByType, getSourceDataFull, type SourceData } from "@/app/test-link/actions";
+import { getSourceByType, getSourceDataFull, getSourceDataFilteredByIos, type SourceData } from "@/app/test-link/actions";
 import {
   allocateImpressionsByMonth,
   darkRangesToDarkDays,
@@ -21,11 +21,11 @@ const DASHBOARD_CACHE_TAG = "dashboard-placements-dsp";
 const DASHBOARD_CACHE_TABLE = "dashboard_cache";
 
 const DATE_COLUMNS = ["cr4fe_date", "cr4fe_reportdate", "report_date", "reportdate", "ReportDate", "date"];
-const IMPRESSIONS_COLUMNS = ["cr4fe_impressioncount", "cr4fe_impressions", "impressions", "impression_count", "impressioncount", "delivered_impressions"];
+const IMPRESSIONS_COLUMNS = ["cr4fe_impressions", "cr4fe_impressioncount", "impressions", "impression_count", "impressioncount", "delivered_impressions"];
 const MEDIA_COST_COLUMNS = ["cr4fe_totalmediacost", "total_media_cost", "totalmediacost", "media_cost", "mediacost"];
 const MEDIA_FEES_COLUMNS = ["cr4fe_mediafees", "media_fees", "mediafees", "Media Fees"];
 const ADVERTISER_COLUMNS = ["cr4fe_advertiser", "Advertiser", "advertiser"];
-const IO_SOURCE_COLUMNS = ["cr4fe_insertionordergid", "cr4fe_insertionorderid", "insertion_order_gid", "insertion order gid", "InsertionOrderGID"];
+const IO_SOURCE_COLUMNS = ["cr4fe_insertionordergid", "insertion order gid", "cr4fe_insertionorderid", "insertion_order_gid", "InsertionOrderGID"];
 
 /** Media fees by advertiser (from migration 013). Applied when no media_fees column in source. */
 const MEDIA_FEES_BY_ADVERTISER: Record<string, number> = {
@@ -52,12 +52,12 @@ function findColumn(row: Record<string, unknown>, candidates: string[]): string 
   const keys = Object.keys(row);
   for (const c of candidates) {
     const cNorm = c.toLowerCase().replace(/\s/g, "_");
-    const found = keys.find(
-      (k) =>
-        k.toLowerCase().replace(/\s/g, "_") === cNorm ||
-        k.toLowerCase().includes(cNorm) ||
-        cNorm.includes(k.toLowerCase().replace(/\s/g, "_"))
-    );
+    const exactMatch = keys.find((k) => k.toLowerCase().replace(/\s/g, "_") === cNorm);
+    if (exactMatch) return exactMatch;
+  }
+  for (const c of candidates) {
+    const cNorm = c.toLowerCase().replace(/\s/g, "_");
+    const found = keys.find((k) => k.toLowerCase().includes(cNorm) || cNorm.includes(k.toLowerCase().replace(/\s/g, "_")));
     if (found) return found;
   }
   return null;
@@ -247,7 +247,7 @@ async function getOrderIdsForAdvertiserWithIoDsp(advertiserId: string): Promise<
 }
 
 /** Fetch placements with insertion_order_id_dsp from placements table. Optionally filter by io, advertiser, and/or placement_id. */
-async function getPlacementsWithIoDsp(
+export async function getPlacementsWithIoDsp(
   ioFilter?: string | null,
   advertiserFilter?: string | null,
   placementIdFilter?: string | null
@@ -368,19 +368,15 @@ export async function getDistinctInsertionOrderIds(advertiserId?: string | null)
   return Array.from(set).sort();
 }
 
-/** Fetch distinct placement_id values for dashboard filter. Shows all placements (not just DSP-linked). Scoped by advertiser and/or io when provided. */
+/** Fetch distinct placement_id values for dashboard filter. Shows all placements (not just DSP-linked). Scoped by advertiser when provided. */
 export async function getDistinctPlacementIdsForDashboard(
-  advertiserId?: string | null,
-  ioFilter?: string | null
+  advertiserId?: string | null
 ): Promise<{ id: string; label: string }[]> {
-  let q = supabase
+  const q = supabase
     .from(PLACEMENTS_TABLE)
     .select("placement_id, placement, order_id")
     .not("placement_id", "is", null)
     .neq("placement_id", "");
-  if (ioFilter && ioFilter.trim()) {
-    q = q.eq("insertion_order_id_dsp", ioFilter.trim());
-  }
   const { data, error } = await q;
   if (error) return [];
   let placements = (data ?? []) as { placement_id: string | null; placement: string | null; order_id: string }[];
@@ -402,6 +398,72 @@ export async function getDistinctPlacementIdsForDashboard(
   }
   return result.sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/** Fetch distinct insertion_order_id_dsp values for a placement. Used to derive IO for data fetch and display. */
+export async function getInsertionOrderIdsForPlacement(
+  placementId: string,
+  advertiserId?: string | null
+): Promise<string[]> {
+  const pid = placementId?.trim();
+  if (!pid) return [];
+
+  let q = supabase
+    .from(PLACEMENTS_TABLE)
+    .select("insertion_order_id_dsp, order_id")
+    .eq("placement_id", pid)
+    .not("insertion_order_id_dsp", "is", null)
+    .neq("insertion_order_id_dsp", "");
+  const { data, error } = await q;
+  if (error) return [];
+  let rows = (data ?? []) as { insertion_order_id_dsp: string | null; order_id: string }[];
+
+  if (advertiserId && advertiserId.trim()) {
+    const orderIds = await getOrderIdsForAdvertiserWithIoDsp(advertiserId.trim());
+    if (orderIds.size === 0) return [];
+    rows = rows.filter((r) => orderIds.has(r.order_id));
+  }
+
+  const set = new Set<string>();
+  for (const r of rows) {
+    const io = String(r.insertion_order_id_dsp ?? "").trim();
+    if (io) set.add(io);
+  }
+  return Array.from(set).sort();
+}
+
+/** Fetch placement_id -> insertion_order_id_dsp[] for all placements (optionally scoped by advertiser). For caching. */
+export async function getPlacementIoIdsForAllPlacements(
+  advertiserId?: string | null
+): Promise<Record<string, string[]>> {
+  let q = supabase
+    .from(PLACEMENTS_TABLE)
+    .select("placement_id, insertion_order_id_dsp, order_id")
+    .not("placement_id", "is", null)
+    .neq("placement_id", "")
+    .not("insertion_order_id_dsp", "is", null)
+    .neq("insertion_order_id_dsp", "");
+  const { data, error } = await q;
+  if (error) return {};
+  let rows = (data ?? []) as { placement_id: string | null; insertion_order_id_dsp: string | null; order_id: string }[];
+
+  if (advertiserId?.trim()) {
+    const orderIds = await getOrderIdsForAdvertiserWithIoDsp(advertiserId.trim());
+    if (orderIds.size === 0) return {};
+    rows = rows.filter((r) => orderIds.has(r.order_id));
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const r of rows) {
+    const pid = String(r.placement_id ?? "").trim();
+    const io = String(r.insertion_order_id_dsp ?? "").trim();
+    if (!pid || !io) continue;
+    if (!result[pid]) result[pid] = [];
+    if (!result[pid].includes(io)) result[pid].push(io);
+  }
+  for (const arr of Object.values(result)) arr.sort();
+  return result;
+}
+
 /** Group key: io when present, else placement_id for placements without DSP link. */
 function placementGroupKey(p: PlacementRow): string {
   const io = String(p.insertion_order_id_dsp ?? "").trim();
@@ -596,7 +658,7 @@ export async function getDashboardDataFromCache(
   return getDashboardCacheRows(ioKey, advKey);
 }
 
-/** Get dashboard data. When placementIdFilter is set, computes on demand (cached by placement+io+advertiser). When cache is empty, computes on demand so filter changes show data. */
+/** Get dashboard data. When placementIdFilter is set, computes on demand (cached by placement+io+advertiser). When cache is empty or has no DSP data, computes on demand so filter changes show data. */
 export async function getDashboardData(
   ioFilter?: string | null,
   advertiserFilter?: string | null,
@@ -618,10 +680,15 @@ export async function getDashboardData(
     )();
   }
   const cached = await getDashboardDataFromCache(ioFilter, advertiserFilter);
-  if (cached.length > 0) return cached;
+  const hasDspData = cached.some((r) => r.dataImpressions > 0 || r.mediaCost > 0);
+  if (cached.length > 0 && hasDspData) return cached;
   const ioKey = ioFilter?.trim() ?? "";
   const advKey = advertiserFilter?.trim() ?? "";
-  return computePlacementsWithDspAggregated(ioKey || undefined, advKey || undefined);
+  const fresh = await computePlacementsWithDspAggregated(ioKey || undefined, advKey || undefined);
+  if (fresh.length > 0 && fresh.some((r) => r.dataImpressions > 0 || r.mediaCost > 0)) {
+    await upsertDashboardCache(ioKey, advKey, fresh);
+  }
+  return fresh.length > 0 ? fresh : cached;
 }
 
 /** Compute fresh data, store in dashboard_cache, and return. Call from Refresh button. */
@@ -650,9 +717,10 @@ export async function refreshAllDashboardCache(): Promise<{ refreshed: number }>
     getSourceByType("DSP"),
   ]);
 
-  if (!dspSource?.id) return { refreshed: 0 };
-  const sourceData = await getSourceDataFull(dspSource.id);
-  if (!sourceData || sourceData.rows.length === 0) return { refreshed: 0 };
+  let sourceData: SourceData | null = null;
+  if (dspSource?.id) {
+    sourceData = await getSourceDataFilteredByIos(dspSource.id, "cr4fe_insertionordergid", allIos);
+  }
 
   const iosByAdvertiser = await Promise.all(advertisers.map((a) => getDistinctInsertionOrderIds(a.id)));
 
@@ -678,7 +746,7 @@ export async function refreshAllDashboardCache(): Promise<{ refreshed: number }>
     const batch = toRefresh.slice(i, i + REFRESH_CONCURRENCY);
     await Promise.all(
       batch.map(({ io, advertiser }) =>
-        refreshAndStoreDashboardData(io || undefined, advertiser || undefined, sourceData)
+        refreshAndStoreDashboardData(io || undefined, advertiser || undefined, sourceData ?? undefined)
       )
     );
   }
@@ -702,7 +770,10 @@ export async function refreshDashboardSelection(
   const advKey = advertiserFilter?.trim() ?? "";
   const dspSource = await getSourceByType("DSP");
   let sourceData: SourceData | null = null;
-  if (dspSource?.id) sourceData = await getSourceDataFull(dspSource.id);
+  if (dspSource?.id) {
+    const ios = await getDistinctInsertionOrderIds(advKey || undefined);
+    sourceData = await getSourceDataFilteredByIos(dspSource.id, "cr4fe_insertionordergid", ios);
+  }
   await refreshAndStoreDashboardData(ioKey || undefined, advKey || undefined, sourceData ?? undefined);
   return { refreshed: true };
 }
@@ -752,10 +823,20 @@ async function computePlacementsWithDspAggregated(
   type IoAgg = { delivered: number; mediaCost: number; mediaFees: number };
   const byMonthIo = new Map<string, Map<string, IoAgg>>();
 
-  let sourceData = preFetchedSourceData;
-  if (!sourceData) {
+  const IO_FILTER_COL = "cr4fe_insertionordergid";
+  let sourceData = preFetchedSourceData && preFetchedSourceData.rows.length > 0 ? preFetchedSourceData : null;
+  if (!sourceData && ioIds.size > 0) {
     const dspSource = await getSourceByType("DSP");
-    if (dspSource?.id) sourceData = await getSourceDataFull(dspSource.id);
+    if (dspSource?.id) {
+      const realIos = Array.from(ioIds).filter((id) => !id.startsWith("_p:"));
+      if (realIos.length > 0) {
+        try {
+          sourceData = await getSourceDataFilteredByIos(dspSource.id, IO_FILTER_COL, realIos);
+        } catch (err) {
+          console.error("[dashboard-dsp] Dataverse fetch error:", err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
   }
 
   if (sourceData && sourceData.rows.length > 0) {

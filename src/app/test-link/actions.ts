@@ -141,6 +141,44 @@ export async function getSourceDataFull(sourceId: string): Promise<SourceData | 
   return null;
 }
 
+/** Fetch source rows for multiple IO values. Batches Dataverse requests per IO, merges results. */
+export async function getSourceDataFilteredByIos(
+  sourceId: string,
+  filterColumn: string,
+  ioValues: string[]
+): Promise<SourceData | null> {
+  const distinct = [...new Set(ioValues.filter((v) => v != null && v !== ""))];
+  if (distinct.length === 0) return getSourceDataFull(sourceId);
+  if (distinct.length === 1) return getSourceDataFiltered(sourceId, filterColumn, distinct[0]);
+
+  const source = await getSource(sourceId);
+  if (!source) return null;
+  if (!source.entitySetName || !source.logicalName) return getSourceDataFull(sourceId);
+
+  const CONCURRENCY = 5;
+  const allRows: Record<string, string>[] = [];
+  let columns: string[] = [];
+  let total = 0;
+
+  for (let i = 0; i < distinct.length; i += CONCURRENCY) {
+    const batch = distinct.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map((io) =>
+        fetchDataverseTableFiltered(source.entitySetName!, source.logicalName!, filterColumn, io)
+      )
+    );
+    for (const r of results) {
+      if (r.rows.length > 0) {
+        if (columns.length === 0) columns = r.columns;
+        allRows.push(...r.rows);
+        total += r.total;
+      }
+    }
+  }
+  if (columns.length === 0 && allRows.length > 0) columns = Object.keys(allRows[0]).filter((k) => k !== "id");
+  return { columns, rows: allRows, total: total || allRows.length };
+}
+
 /** Fetch source rows filtered by column = value (exact match). Uses $filter for Dataverse, eq for Supabase. */
 export async function getSourceDataFiltered(
   sourceId: string,
