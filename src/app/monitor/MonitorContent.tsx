@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { MonitorDataPayload } from "@/lib/monitor-data";
+import type { MonitorDataPayload, MonitorDisplayRow } from "@/lib/monitor-data";
 import { Button } from "@/components/ui";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useLoading } from "@/components/LoadingOverlay";
@@ -11,6 +11,9 @@ import MonitorPickers from "./MonitorPickers";
 import RefreshOrderButton from "./RefreshOrderButton";
 import RefreshMonitorButton from "./RefreshMonitorButton";
 import PlacementsModal from "./PlacementsModal";
+import { FilterPillSelect } from "@/components/FilterPillSelect";
+import { Last7DaysTooltip } from "./Last7DaysTooltip";
+import { DailyPane } from "./DailyPane";
 type NavItem = { id: string; name: string };
 
 const tableBorderRadius = "var(--radius-md)";
@@ -38,7 +41,6 @@ const blackTh = { ...thStyle, textAlign: "right" as const, color: "var(--text-pr
 const IMPRESSIONS_TABLE_COLUMNS = [
   { id: "month", label: "Month", width: "9%", thStyle: { ...thStyle, textAlign: "left" as const }, tdStyle: tdBase },
   { id: "placements", label: "Placements", width: "8%", thStyle: goldTh, tdStyle: goldTd },
-  { id: "delivLines", label: "Deliv. Lines", width: "8%", thStyle: purpleTh, tdStyle: purpleTd },
   { id: "bookedImpressions", label: "Booked impressions", width: "12%", thStyle: goldTh, tdStyle: goldTd },
   { id: "deliveredImpr", label: "Delivered Impr.", width: "12%", thStyle: purpleTh, tdStyle: purpleTd },
   { id: "mediaCost", label: "Media Cost", width: "12%", thStyle: purpleTh, tdStyle: purpleTd },
@@ -47,7 +49,7 @@ const IMPRESSIONS_TABLE_COLUMNS = [
   { id: "totalCost", label: "Total Cost", width: "12%", thStyle: purpleTh, tdStyle: purpleTd },
   { id: "bookedRevenue", label: "Booked Revenue", width: "12%", thStyle: goldTh, tdStyle: goldTd },
   { id: "bookedRevenueVsTotalCost", label: "Booked Revenue vs Total Cost", width: "12%", thStyle: blackTh, tdStyle: blackTd },
-  { id: "margin", label: "Margin", width: "9%", thStyle: blackTh, tdStyle: blackTd },
+  { id: "margin", label: "Margin (%)", width: "9%", thStyle: blackTh, tdStyle: blackTd },
 ] as const;
 
 type ColumnId = (typeof IMPRESSIONS_TABLE_COLUMNS)[number]["id"];
@@ -59,7 +61,6 @@ const defaultColumnVisibility: Record<ColumnId, boolean> = {
   bookedImpressions: true,
   placements: true,
   deliveredImpr: true,
-  delivLines: true,
   mediaCost: true,
   mediaFees: true,
   celtraCost: true,
@@ -78,6 +79,70 @@ type MonitorByDimensionRow = {
 };
 
 type AdvertiserOption = { id: string; advertiser: string };
+
+/** Merge multiple payloads by year-month: sum metrics per month. */
+function mergePayloadsByYearMonth(payloads: MonitorDataPayload[]): MonitorDataPayload | null {
+  if (payloads.length === 0) return null;
+  const byYm = new Map<string, Partial<MonitorDisplayRow>>();
+  for (const p of payloads) {
+    for (const r of p.rows ?? []) {
+      const existing = byYm.get(r.yearMonth);
+      if (!existing) {
+        byYm.set(r.yearMonth, { ...r });
+      } else {
+        existing.sumImpressions = (existing.sumImpressions ?? 0) + r.sumImpressions;
+        existing.dataImpressions = (existing.dataImpressions ?? 0) + r.dataImpressions;
+        existing.deliveredLines = (existing.deliveredLines ?? 0) + r.deliveredLines;
+        existing.mediaCost = (existing.mediaCost ?? 0) + r.mediaCost;
+        existing.mediaFees = (existing.mediaFees ?? 0) + r.mediaFees;
+        existing.celtraCost = (existing.celtraCost ?? 0) + r.celtraCost;
+        existing.totalCost = (existing.totalCost ?? 0) + r.totalCost;
+        existing.bookedRevenue = (existing.bookedRevenue ?? 0) + r.bookedRevenue;
+        existing.activeOrderCount = Math.max(existing.activeOrderCount ?? 0, r.activeOrderCount ?? 0);
+        existing.placementCount = (existing.placementCount ?? 0) + (r.placementCount ?? r.activeOrderCount ?? 0);
+      }
+    }
+  }
+  const rows: MonitorDisplayRow[] = Array.from(byYm.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([yearMonth, r]) => ({
+      yearMonth,
+      sumImpressions: r.sumImpressions ?? 0,
+      activeOrderCount: r.activeOrderCount ?? 0,
+      dataImpressions: r.dataImpressions ?? 0,
+      deliveredLines: r.deliveredLines ?? 0,
+      mediaCost: Math.round((r.mediaCost ?? 0) * 100) / 100,
+      mediaFees: Math.round((r.mediaFees ?? 0) * 100) / 100,
+      celtraCost: Math.round((r.celtraCost ?? 0) * 100) / 100,
+      totalCost: Math.round((r.totalCost ?? 0) * 100) / 100,
+      bookedRevenue: Math.round((r.bookedRevenue ?? 0) * 100) / 100,
+      placementCount: r.placementCount ?? 0,
+    }));
+  const totalImpressions = rows.reduce((a, r) => a + r.sumImpressions, 0);
+  const totalDataImpressions = rows.reduce((a, r) => a + r.dataImpressions, 0);
+  const totalDeliveredLines = rows.reduce((a, r) => a + r.deliveredLines, 0);
+  const totalMediaCost = Math.round(rows.reduce((a, r) => a + r.mediaCost, 0) * 100) / 100;
+  const totalMediaFees = Math.round(rows.reduce((a, r) => a + r.mediaFees, 0) * 100) / 100;
+  const totalCeltraCost = Math.round(rows.reduce((a, r) => a + r.celtraCost, 0) * 100) / 100;
+  const totalTotalCost = Math.round(rows.reduce((a, r) => a + r.totalCost, 0) * 100) / 100;
+  const totalBookedRevenue = Math.round(rows.reduce((a, r) => a + r.bookedRevenue, 0) * 100) / 100;
+  const totalPlacementCount = Math.max(...rows.map((r) => r.placementCount ?? 0), 0);
+  return {
+    orderRows: [],
+    totalUniqueOrderCount: 0,
+    dataRows: [],
+    rows,
+    totalImpressions,
+    totalDataImpressions,
+    totalDeliveredLines,
+    totalMediaCost,
+    totalMediaFees,
+    totalCeltraCost,
+    totalTotalCost,
+    totalBookedRevenue,
+    totalPlacementCount,
+  };
+}
 
 type Props = {
   initialData: MonitorDataPayload;
@@ -125,16 +190,23 @@ export default function MonitorContent({
   const [dimensionRows, setDimensionRows] = useState<MonitorByDimensionRow[]>([]);
   const [dimensionLoading, setDimensionLoading] = useState(false);
   const [placementsModalOpen, setPlacementsModalOpen] = useState(false);
-  const [placementCopyFeedback, setPlacementCopyFeedback] = useState(false);
+  const [dailyPaneOpen, setDailyPaneOpen] = useState(false);
+  const [dailyPaneYearMonth, setDailyPaneYearMonth] = useState<string>("");
   const { setLoading } = useLoading();
 
-  const handlePlacementCopy = () => {
-    const text = placementFilter || "All placements";
-    void navigator.clipboard.writeText(text).then(() => {
-      setPlacementCopyFeedback(true);
-      setTimeout(() => setPlacementCopyFeedback(false), 1200);
-    });
+  const openDailyPane = (yearMonth: string) => {
+    setDailyPaneYearMonth(yearMonth);
+    setDailyPaneOpen(true);
   };
+
+  useEffect(() => {
+    if (!dailyPaneOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDailyPaneOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dailyPaneOpen]);
 
   useClickOutside(columnsRef, () => setColumnsOpen(false), columnsOpen);
 
@@ -157,32 +229,6 @@ export default function MonitorContent({
       .then((arr) => setPlacementOptions(Array.isArray(arr) ? arr : []));
   }, [forceGlobal, advertiserOptions.length, advertiserFilter]);
 
-  const [refreshCacheTrigger, setRefreshCacheTrigger] = useState(0);
-  // Prefetch all placement IO IDs for current advertiser (warms cache, avoids per-placement queries)
-  useEffect(() => {
-    if (!forceGlobal || !advertiserOptions.length) return;
-    const adv = advertiserFilter?.trim() || undefined;
-    const currentPlacement = placementFilter;
-    const params = new URLSearchParams();
-    if (adv) params.set("advertiser", adv);
-    params.set("all", "1");
-    fetch(`/api/dashboard-placement-io-ids?${params.toString()}`)
-      .then((res) => (res.ok ? res.json() : {}))
-      .then((map) => {
-        const m = map as Record<string, string[]>;
-        if (typeof m === "object" && m !== null) {
-          for (const [pid, ids] of Object.entries(m)) {
-            if (Array.isArray(ids) && pid) placementIoIdsCacheRef.current[`${adv ?? ""}|${pid}`] = ids;
-          }
-          if (currentPlacement && filtersRef.current.placementFilter === currentPlacement && Array.isArray(m[currentPlacement])) {
-            setPlacementIoIds(m[currentPlacement]);
-            setPlacementIoIdsSettled(true);
-          }
-        }
-      })
-      .catch(() => {});
-  }, [forceGlobal, advertiserOptions.length, advertiserFilter, refreshCacheTrigger]);
-
   // Fetch IO options when advertiser changes (for read-only display when "all placements")
   useEffect(() => {
     if (!forceGlobal || !advertiserOptions.length) return;
@@ -192,25 +238,19 @@ export default function MonitorContent({
       .then((arr) => setIoOptions(Array.isArray(arr) ? arr : []));
   }, [forceGlobal, advertiserOptions.length, advertiserFilter]);
 
-  // Client cache for placement -> IO IDs. Key: `${advertiser}|${placement}`. Cleared on refresh.
-  const placementIoIdsCacheRef = useRef<Record<string, string[]>>({});
   const placementFetchAbortRef = useRef<AbortController | null>(null);
   const dataFetchIdRef = useRef(0);
   const filtersRef = useRef({ placementFilter, advertiserFilter, ioFilter });
   filtersRef.current = { placementFilter, advertiserFilter, ioFilter };
 
-  // Fetch IO IDs for selected placement (for display and data fetch). Uses cache, AbortController.
+  // Current month daily totals (up to yesterday) for margin and rev vs cost columns — same as right pane
+  const [currentMonthToDate, setCurrentMonthToDate] = useState<{ rev: number; cost: number } | null>(null);
+
+  // Fetch IO IDs for selected placement (for display and data fetch). Server cache handles repeat requests.
   const [placementIoIdsSettled, setPlacementIoIdsSettled] = useState(false);
   useEffect(() => {
     if (!forceGlobal || !placementFilter?.trim()) {
       setPlacementIoIds([]);
-      setPlacementIoIdsSettled(true);
-      return;
-    }
-    const cacheKey = `${advertiserFilter}|${placementFilter}`;
-    const cached = placementIoIdsCacheRef.current[cacheKey];
-    if (cached) {
-      setPlacementIoIds(cached);
       setPlacementIoIdsSettled(true);
       return;
     }
@@ -229,7 +269,6 @@ export default function MonitorContent({
       .then((arr) => {
         const ids = Array.isArray(arr) ? arr : [];
         if (placementFilter === currentPlacement && advertiserFilter === currentAdvertiser) {
-          placementIoIdsCacheRef.current[cacheKey] = ids;
           setPlacementIoIds(ids);
           setPlacementIoIdsSettled(true);
         }
@@ -245,6 +284,8 @@ export default function MonitorContent({
   const effectiveIo: string = placementFilter && placementIoIds.length > 0 ? placementIoIds[0] : ioFilter;
   const canFetchWithPlacement = !placementFilter || placementIoIdsSettled;
   const ioSelectValue = placementFilter ? (placementIoIds[0] ?? "") : ioFilter;
+  const advertiserOnly = !!(advertiserFilter && !placementFilter && !effectiveIo);
+
   useEffect(() => {
     if (!forceGlobal || !advertiserOptions.length || !canFetchWithPlacement) return;
     if (!filtersInitialized.current) {
@@ -256,21 +297,38 @@ export default function MonitorContent({
     const fetchAdvertiser = advertiserFilter;
     const fetchIo = effectiveIo;
     setLoading(true);
-    const params = new URLSearchParams();
-    if (advertiserFilter) params.set("advertiser", advertiserFilter);
-    if (effectiveIo) params.set("io", effectiveIo);
-    if (placementFilter) params.set("placement", placementFilter);
-    fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload) => {
-        if (fetchId === dataFetchIdRef.current && filtersRef.current.placementFilter === fetchPlacement && filtersRef.current.advertiserFilter === fetchAdvertiser && effectiveIo === fetchIo) {
-          if (payload) setData(payload);
-        }
-      })
-      .finally(() => {
-        if (fetchId === dataFetchIdRef.current) setLoading(false);
-      });
-  }, [forceGlobal, advertiserOptions.length, advertiserFilter, effectiveIo, placementFilter, canFetchWithPlacement, setLoading]);
+
+    if (advertiserOnly) {
+      // Single fetch: backend includes ALL placements (with/without DSP) for full booked-impressions
+      const params = new URLSearchParams();
+      params.set("advertiser", advertiserFilter!);
+      fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((payload) => {
+          if (fetchId === dataFetchIdRef.current && filtersRef.current.placementFilter === fetchPlacement && filtersRef.current.advertiserFilter === fetchAdvertiser) {
+            if (payload) setData(payload);
+          }
+        })
+        .finally(() => {
+          if (fetchId === dataFetchIdRef.current) setLoading(false);
+        });
+    } else {
+      const params = new URLSearchParams();
+      if (advertiserFilter) params.set("advertiser", advertiserFilter);
+      if (effectiveIo) params.set("io", effectiveIo);
+      if (placementFilter) params.set("placement", placementFilter);
+      fetch(`/api/monitor-data?${params.toString()}`, { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((payload) => {
+          if (fetchId === dataFetchIdRef.current && filtersRef.current.placementFilter === fetchPlacement && filtersRef.current.advertiserFilter === fetchAdvertiser && effectiveIo === fetchIo) {
+            if (payload) setData(payload);
+          }
+        })
+        .finally(() => {
+          if (fetchId === dataFetchIdRef.current) setLoading(false);
+        });
+    }
+  }, [forceGlobal, advertiserOptions.length, advertiserFilter, effectiveIo, placementFilter, canFetchWithPlacement, setLoading, advertiserOnly]);
 
   useEffect(() => {
     if (!columnsOpen || !columnsButtonRef.current) {
@@ -347,8 +405,6 @@ export default function MonitorContent({
   }
 
   async function refreshFromCache() {
-    placementIoIdsCacheRef.current = {};
-    setRefreshCacheTrigger((t) => t + 1);
     if (forceGlobal) {
       const refreshRes = await fetch("/api/dashboard-refresh-all", { method: "POST" });
       if (!refreshRes.ok) {
@@ -371,8 +427,6 @@ export default function MonitorContent({
   }
 
   async function refreshSelectionFromCache() {
-    placementIoIdsCacheRef.current = {};
-    setRefreshCacheTrigger((t) => t + 1);
     const refreshRes = await fetch("/api/dashboard-refresh-selection", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -397,6 +451,36 @@ export default function MonitorContent({
   }
 
   const { rows, orderRows, totalUniqueOrderCount, totalPlacementCount, totalImpressions, totalDataImpressions, totalDeliveredLines, totalMediaCost, totalMediaFees, totalCeltraCost, totalTotalCost, totalBookedRevenue } = data;
+
+  const currentPeriodKey = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    if (timeGroup === "yearMonth") return `${y}-${String(m).padStart(2, "0")}`;
+    if (timeGroup === "quarter") return `${y}-Q${Math.ceil(m / 3)}`;
+    return String(y);
+  }, [timeGroup]);
+
+  // Fetch current month daily totals (up to yesterday) for margin/rev-vs-cost — same logic as right pane
+  useEffect(() => {
+    if (!forceGlobal || timeGroup !== "yearMonth" || !currentPeriodKey || !/^\d{4}-\d{2}$/.test(currentPeriodKey)) {
+      setCurrentMonthToDate(null);
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("yearMonth", currentPeriodKey);
+    if (advertiserFilter?.trim()) params.set("advertiser", advertiserFilter.trim());
+    if (effectiveIo) params.set("io", effectiveIo);
+    if (placementFilter?.trim()) params.set("placement", placementFilter.trim());
+    fetch(`/api/dashboard-daily-by-month?${params.toString()}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: { date: string; bookedRevenue: number; totalCost: number }[]) => {
+        const rev = rows.reduce((a, r) => a + r.bookedRevenue, 0);
+        const cost = rows.reduce((a, r) => a + r.totalCost, 0);
+        setCurrentMonthToDate({ rev, cost });
+      })
+      .catch(() => setCurrentMonthToDate(null));
+  }, [forceGlobal, timeGroup, currentPeriodKey, advertiserFilter, effectiveIo, placementFilter]);
 
   const aggregatedRows = useMemo(() => {
     if (timeGroup === "yearMonth") return rows;
@@ -528,73 +612,46 @@ export default function MonitorContent({
             <div className="dashboard-toolbar-filters">
                 <div className="dashboard-control-group">
                   <label htmlFor="advertiser-filter">Advertiser</label>
-                  <select
+                  <FilterPillSelect
                     id="advertiser-filter"
-                    className="dashboard-control"
+                    aria-label="Select advertiser"
                     value={advertiserFilter}
-                    onChange={(e) => {
+                    onChange={(v) => {
                       setLoading(true);
-                      setAdvertiserFilter(e.target.value);
+                      setAdvertiserFilter(v);
                       setPlacementFilter("");
                       setIoFilter("");
                     }}
-                  >
-                    <option value="">All advertisers</option>
-                    {advertiserOptions.map((a) => (
-                      <option key={a.id} value={a.id}>{a.advertiser}</option>
-                    ))}
-                  </select>
+                    options={advertiserOptions.map((a) => ({ value: a.id, label: a.advertiser }))}
+                    emptyLabel="All advertisers"
+                  />
                 </div>
                 <div className="dashboard-control-group">
                   <label htmlFor="placement-filter">Placement ID</label>
-                  <div className="placement-filter-pill" data-dashboard>
-                    <button
-                      type="button"
-                      className="placement-filter-pill-display"
-                      onClick={handlePlacementCopy}
-                      title="Click to copy"
-                    >
-                      {placementCopyFeedback ? "Copied!" : (placementFilter || "All placements")}
-                    </button>
-                    <div className="placement-filter-pill-dropdown">
-                      <select
-                        id="placement-filter"
-                        className="placement-filter-pill-select"
-                        value={placementFilter}
-                        onChange={(e) => {
-                          setLoading(true);
-                          setPlacementFilter(e.target.value);
-                          setIoFilter("");
-                        }}
-                        aria-label="Select placement"
-                      >
-                        <option value="">All placements</option>
-                        {placementOptions.map((p) => (
-                          <option key={p.id} value={p.id}>{p.id}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+                  <FilterPillSelect
+                    id="placement-filter"
+                    aria-label="Select placement"
+                    value={placementFilter}
+                    onChange={(v) => {
+                      setLoading(true);
+                      setPlacementFilter(v);
+                      setIoFilter("");
+                    }}
+                    options={placementOptions.map((p) => ({ value: p.id, label: p.id }))}
+                    emptyLabel="All placements"
+                  />
                 </div>
                 <div className="dashboard-control-group">
                   <label htmlFor="io-filter">Insertion Order ID</label>
-                  <select
+                  <FilterPillSelect
                     id="io-filter"
-                    className="dashboard-control"
+                    aria-label="Insertion order ID"
                     value={ioSelectValue}
-                    onChange={(e) => {
-                      setLoading(true);
-                      setIoFilter(e.target.value);
-                      setPlacementFilter("");
-                    }}
-                    style={{ minWidth: 180 }}
-                    aria-label="Select insertion order"
-                  >
-                    <option value="">All insertion order IDs</option>
-                    {ioOptions.map((io) => (
-                      <option key={io} value={io}>{io}</option>
-                    ))}
-                  </select>
+                    onChange={() => {}}
+                    options={ioOptions.map((io) => ({ value: io, label: io }))}
+                    emptyLabel="All insertion order IDs"
+                    readOnly
+                  />
                 </div>
             </div>
           )}
@@ -801,26 +858,53 @@ export default function MonitorContent({
                             if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{row.sumImpressions.toLocaleString("en-US")}</td>;
                             if (col.id === "placements") return <td key={col.id} style={col.tdStyle}>{row.placementCount ?? row.activeOrderCount ?? 0}</td>;
                             if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{row.dataImpressions > 0 ? row.dataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
-                            if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{row.deliveredLines > 0 ? row.deliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                             if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{row.mediaCost > 0 ? `$${row.mediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                             if (col.id === "mediaFees") return <td key={col.id} style={col.tdStyle}>{row.mediaFees > 0 ? `$${row.mediaFees.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                             if (col.id === "celtraCost") return <td key={col.id} style={col.tdStyle}>{row.celtraCost > 0 ? `$${row.celtraCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                             if (col.id === "totalCost") return <td key={col.id} style={col.tdStyle}>{row.totalCost > 0 ? `$${row.totalCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                             if (col.id === "bookedRevenue") return <td key={col.id} style={col.tdStyle}>{row.bookedRevenue > 0 ? `$${row.bookedRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                             if (col.id === "bookedRevenueVsTotalCost") {
-                              const value = row.bookedRevenue - row.totalCost;
+                              const isFuture = row.yearMonth > currentPeriodKey;
+                              if (isFuture) return <td key={col.id} style={col.tdStyle}>—</td>;
+                              const rev = row.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.rev : row.bookedRevenue;
+                              const cost = row.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.cost : row.totalCost;
+                              const value = rev - cost;
                               return (
-                                <td key={col.id} style={{ ...col.tdStyle, color: value < 0 ? "#dc2626" : "#16a34a" }}>
-                                  {row.bookedRevenue > 0 || row.totalCost > 0 ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : "\u2014"}
-                                </td>
+                                <Last7DaysTooltip
+                                  key={col.id}
+                                  yearMonth={row.yearMonth}
+                                  advertiser={advertiserFilter || undefined}
+                                  io={effectiveIo || undefined}
+                                  placement={placementFilter || undefined}
+                                  cellStyle={{ ...col.tdStyle, color: value < 0 ? "#dc2626" : "#16a34a" }}
+                                  forceGlobal={forceGlobal}
+                                  timeGroup={timeGroup}
+                                  onCellClick={forceGlobal && /^\d{4}-\d{2}$/.test(row.yearMonth) ? () => openDailyPane(row.yearMonth) : undefined}
+                                >
+                                  {rev > 0 || cost > 0 ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}
+                                </Last7DaysTooltip>
                               );
                             }
                             if (col.id === "margin") {
-                              const margin = row.bookedRevenue > 0 ? (100 * (row.bookedRevenue - row.totalCost)) / row.bookedRevenue : null;
+                              const isFuture = row.yearMonth > currentPeriodKey;
+                              if (isFuture) return <td key={col.id} style={col.tdStyle}>—</td>;
+                              const rev = row.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.rev : row.bookedRevenue;
+                              const cost = row.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.cost : row.totalCost;
+                              const margin = rev > 0 ? (100 * (rev - cost)) / rev : null;
                               return (
-                                <td key={col.id} style={{ ...col.tdStyle, color: margin != null && margin < 0 ? "#dc2626" : "#16a34a" }}>
-                                  {margin != null ? `${margin.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "\u2014"}
-                                </td>
+                                <Last7DaysTooltip
+                                  key={col.id}
+                                  yearMonth={row.yearMonth}
+                                  advertiser={advertiserFilter || undefined}
+                                  io={effectiveIo || undefined}
+                                  placement={placementFilter || undefined}
+                                  cellStyle={{ ...col.tdStyle, color: margin != null && margin < 0 ? "#dc2626" : "#16a34a" }}
+                                  forceGlobal={forceGlobal}
+                                  timeGroup={timeGroup}
+                                  onCellClick={forceGlobal && /^\d{4}-\d{2}$/.test(row.yearMonth) ? () => openDailyPane(row.yearMonth) : undefined}
+                                >
+                                  {margin != null ? `${margin.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : "\u2014"}
+                                </Last7DaysTooltip>
                               );
                             }
                             return null;
@@ -847,25 +931,30 @@ export default function MonitorContent({
                         if (col.id === "bookedImpressions") return <td key={col.id} style={col.tdStyle}>{totalImpressions.toLocaleString("en-US")}</td>;
                         if (col.id === "placements") return <td key={col.id} style={col.tdStyle}>{totalPlacementCount ?? totalUniqueOrderCount ?? 0}</td>;
                         if (col.id === "deliveredImpr") return <td key={col.id} style={col.tdStyle}>{totalDataImpressions > 0 ? totalDataImpressions.toLocaleString("en-US") : "\u2014"}</td>;
-                        if (col.id === "delivLines") return <td key={col.id} style={col.tdStyle}>{totalDeliveredLines > 0 ? totalDeliveredLines.toLocaleString("en-US") : "\u2014"}</td>;
                         if (col.id === "mediaCost") return <td key={col.id} style={col.tdStyle}>{totalMediaCost > 0 ? `$${totalMediaCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                         if (col.id === "mediaFees") return <td key={col.id} style={col.tdStyle}>{(totalMediaFees ?? 0) > 0 ? `$${(totalMediaFees ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                         if (col.id === "celtraCost") return <td key={col.id} style={col.tdStyle}>{totalCeltraCost > 0 ? `$${totalCeltraCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                         if (col.id === "totalCost") return <td key={col.id} style={col.tdStyle}>{totalTotalCost > 0 ? `$${totalTotalCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                         if (col.id === "bookedRevenue") return <td key={col.id} style={col.tdStyle}>{totalBookedRevenue > 0 ? `$${totalBookedRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}</td>;
                         if (col.id === "bookedRevenueVsTotalCost") {
-                          const value = totalBookedRevenue - totalTotalCost;
+                          const toDate = aggregatedRows.filter((r) => r.yearMonth <= currentPeriodKey);
+                          const revToDate = Math.round(toDate.reduce((a, r) => a + (r.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.rev : r.bookedRevenue), 0) * 100) / 100;
+                          const costToDate = Math.round(toDate.reduce((a, r) => a + (r.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.cost : r.totalCost), 0) * 100) / 100;
+                          const value = revToDate - costToDate;
                           return (
                             <td key={col.id} style={{ ...col.tdStyle, color: value < 0 ? "#dc2626" : "#16a34a" }}>
-                              {totalBookedRevenue > 0 || totalTotalCost > 0 ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}` : "\u2014"}
+                              {revToDate > 0 || costToDate > 0 ? `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "\u2014"}
                             </td>
                           );
                         }
                         if (col.id === "margin") {
-                          const margin = totalBookedRevenue > 0 ? (100 * (totalBookedRevenue - totalTotalCost)) / totalBookedRevenue : null;
+                          const toDate = aggregatedRows.filter((r) => r.yearMonth <= currentPeriodKey);
+                          const revToDate = toDate.reduce((a, r) => a + (r.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.rev : r.bookedRevenue), 0);
+                          const costToDate = toDate.reduce((a, r) => a + (r.yearMonth === currentPeriodKey && currentMonthToDate ? currentMonthToDate.cost : r.totalCost), 0);
+                          const margin = revToDate > 0 ? (100 * (revToDate - costToDate)) / revToDate : null;
                           return (
                             <td key={col.id} style={{ ...col.tdStyle, color: margin != null && margin < 0 ? "#dc2626" : "#16a34a" }}>
-                              {margin != null ? `${margin.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "\u2014"}
+                              {margin != null ? `${margin.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` : "\u2014"}
                             </td>
                           );
                         }
@@ -947,6 +1036,32 @@ export default function MonitorContent({
             </table>
           </div>
         </div>
+      )}
+      {forceGlobal && (
+        <>
+          {dailyPaneOpen && (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setDailyPaneOpen(false)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.2)",
+                zIndex: 999,
+              }}
+              aria-label="Close daily pane"
+            />
+          )}
+          <DailyPane
+            yearMonth={dailyPaneYearMonth}
+            advertiser={advertiserFilter || undefined}
+            io={effectiveIo || undefined}
+            placement={placementFilter || undefined}
+            open={dailyPaneOpen}
+            onClose={() => setDailyPaneOpen(false)}
+          />
+        </>
       )}
     </main>
   );
