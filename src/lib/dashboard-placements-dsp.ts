@@ -1,8 +1,13 @@
 "use server";
 
 /**
- * Dashboard: aggregate placements (with insertion_order_id_dsp) joined to DSP source.
- * Join: placement.insertion_order_id_dsp = DSP.cr4fe_insertionordergid
+ * Dashboard: aggregate placements joined to DSP (Dataverse cr4fe_dspalls).
+ *
+ * Pipeline (same as test page):
+ * 1. Supabase placements.insertion_order_id_dsp → unique IO IDs
+ * 2. Dataverse cr4fe_dspalls filtered by cr4fe_insertionordergid = each IO
+ * 3. Join: Supabase IO = Dataverse cr4fe_insertionordergid (exact or comma-separated)
+ * 4. Sum cr4fe_impressions by year-month → Delivered Impr. column
  */
 import { revalidateTag, unstable_cache } from "next/cache";
 import { supabase } from "@/db";
@@ -10,6 +15,7 @@ import { PLACEMENTS_TABLE, ORDERS_TABLE, CAMPAIGNS_TABLE } from "@/db/schema";
 import { getSourceByType, getSourceDataFull, getSourceDataFilteredByIos, type SourceData } from "@/app/test-link/actions";
 import {
   allocateImpressionsByMonth,
+  allocateImpressionsByDay,
   darkRangesToDarkDays,
   assignedRangesToPerDay,
   toDateStr,
@@ -19,17 +25,19 @@ import type { MonitorDisplayRow } from "@/lib/monitor-data";
 
 const DASHBOARD_CACHE_TAG = "dashboard-placements-dsp";
 const DASHBOARD_CACHE_TABLE = "dashboard_cache";
+const PLACEMENT_IO_CACHE_TAG = "dashboard-placement-io";
 
 const DATE_COLUMNS = ["cr4fe_date", "cr4fe_reportdate", "report_date", "reportdate", "ReportDate", "date"];
 const IMPRESSIONS_COLUMNS = ["cr4fe_impressions", "cr4fe_impressioncount", "impressions", "impression_count", "impressioncount", "delivered_impressions"];
+/** Media Cost: Dataverse cr4fe_totalmediacost (primary), then fallbacks. */
 const MEDIA_COST_COLUMNS = ["cr4fe_totalmediacost", "total_media_cost", "totalmediacost", "media_cost", "mediacost"];
-const MEDIA_FEES_COLUMNS = ["cr4fe_mediafees", "media_fees", "mediafees", "Media Fees"];
 const ADVERTISER_COLUMNS = ["cr4fe_advertiser", "Advertiser", "advertiser"];
 const IO_SOURCE_COLUMNS = ["cr4fe_insertionordergid", "insertion order gid", "cr4fe_insertionorderid", "insertion_order_gid", "InsertionOrderGID"];
 
-/** Media fees by advertiser (from migration 013). Applied when no media_fees column in source. */
+/** Media fees = Total Media Cost * multiplier by cr4fe_advertiser (Dataverse). */
 const MEDIA_FEES_BY_ADVERTISER: Record<string, number> = {
   "ND - HA Usd - Buho": 0.28,
+  "ND - HA - Buho USD": 0.28,
   "ND - BM Usd - Buho Media": 0.08,
 };
 
@@ -246,6 +254,18 @@ async function getOrderIdsForAdvertiserWithIoDsp(advertiserId: string): Promise<
   return new Set((orders ?? []).map((o) => (o as { id: string }).id));
 }
 
+/** Fetch ALL placements for advertiser (with or without insertion_order_id_dsp). For full booked-impressions coverage. */
+async function getPlacementsForAdvertiserAll(advertiserId: string): Promise<PlacementRow[]> {
+  const orderIds = await getOrderIdsForAdvertiserWithIoDsp(advertiserId);
+  if (orderIds.size === 0) return [];
+  const { data, error } = await supabase
+    .from(PLACEMENTS_TABLE)
+    .select("order_id, insertion_order_id_dsp, placement_id, start_date, end_date, impressions, cpm_adops, cpm_celtra, dark_days, per_day_impressions, dark_ranges, assigned_ranges")
+    .in("order_id", Array.from(orderIds));
+  if (error) return [];
+  return (data ?? []) as PlacementRow[];
+}
+
 /** Fetch placements with insertion_order_id_dsp from placements table. Optionally filter by io, advertiser, and/or placement_id. */
 export async function getPlacementsWithIoDsp(
   ioFilter?: string | null,
@@ -399,8 +419,7 @@ export async function getDistinctPlacementIdsForDashboard(
   return result.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** Fetch distinct insertion_order_id_dsp values for a placement. Used to derive IO for data fetch and display. */
-export async function getInsertionOrderIdsForPlacement(
+async function getInsertionOrderIdsForPlacementInner(
   placementId: string,
   advertiserId?: string | null
 ): Promise<string[]> {
@@ -431,8 +450,21 @@ export async function getInsertionOrderIdsForPlacement(
   return Array.from(set).sort();
 }
 
-/** Fetch placement_id -> insertion_order_id_dsp[] for all placements (optionally scoped by advertiser). For caching. */
-export async function getPlacementIoIdsForAllPlacements(
+/** Fetch distinct insertion_order_id_dsp values for a placement. Cached 5 min. */
+export async function getInsertionOrderIdsForPlacement(
+  placementId: string,
+  advertiserId?: string | null
+): Promise<string[]> {
+  const pid = placementId?.trim() ?? "";
+  const advKey = advertiserId?.trim() ?? "";
+  return unstable_cache(
+    () => getInsertionOrderIdsForPlacementInner(placementId, advertiserId),
+    ["placement-io-single", pid, advKey],
+    { tags: [PLACEMENT_IO_CACHE_TAG, DASHBOARD_CACHE_TAG], revalidate: 300 }
+  )();
+}
+
+async function getPlacementIoIdsForAllPlacementsInner(
   advertiserId?: string | null
 ): Promise<Record<string, string[]>> {
   let q = supabase
@@ -462,6 +494,18 @@ export async function getPlacementIoIdsForAllPlacements(
   }
   for (const arr of Object.values(result)) arr.sort();
   return result;
+}
+
+/** Fetch placement_id -> insertion_order_id_dsp[] for all placements. Cached 5 min. */
+export async function getPlacementIoIdsForAllPlacements(
+  advertiserId?: string | null
+): Promise<Record<string, string[]>> {
+  const advKey = advertiserId?.trim() ?? "";
+  return unstable_cache(
+    () => getPlacementIoIdsForAllPlacementsInner(advertiserId),
+    ["placement-io-all", advKey],
+    { tags: [PLACEMENT_IO_CACHE_TAG, DASHBOARD_CACHE_TAG], revalidate: 300 }
+  )();
 }
 
 /** Group key: io when present, else placement_id for placements without DSP link. */
@@ -503,6 +547,71 @@ function sumPerDayByMonth(perDay: Record<string, number>, startDay: Date, endDay
     }
   }
   return byMonth;
+}
+
+/** Sum perDay values by date within [startDay, endDay]. */
+function sumPerDayByDay(perDay: Record<string, number>, startDay: Date, endDay: Date): Map<string, number> {
+  const byDay = new Map<string, number>();
+  const startMs = startDay.getTime();
+  const endMs = endDay.getTime();
+  for (const [dateStr, val] of Object.entries(perDay)) {
+    const d = new Date(dateStr + (dateStr.includes("T") ? "" : "T12:00:00"));
+    if (!Number.isNaN(d.getTime()) && val > 0) {
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      if (dayStart >= startMs && dayStart <= endMs) {
+        const norm = normalizeDateKey(dateStr);
+        byDay.set(norm, (byDay.get(norm) ?? 0) + val);
+      }
+    }
+  }
+  return byDay;
+}
+
+function computeBookedByIoAndDay(
+  placements: PlacementRow[],
+  startDay: Date,
+  endDay: Date
+): Map<string, Map<string, number>> {
+  const byIoAndDay = new Map<string, Map<string, number>>();
+  const startStr = toDateStr(startDay);
+  const endStr = toDateStr(endDay);
+
+  for (const p of placements) {
+    const key = placementGroupKey(p);
+    if (!key) continue;
+
+    const start = parseDate(p.start_date);
+    const end = parseDate(p.end_date);
+    if (!start || !end || end < start) continue;
+
+    const darkDays = resolveDarkDays(p);
+    const perDayImpressions = resolvePerDayImpressions(p);
+
+    const pStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const pEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    if (pEnd < startDay || pStart > endDay) continue;
+
+    const assignedSum = sumPerDayInRange(perDayImpressions, pStart, pEnd);
+    const goal = assignedSum > 0 ? assignedSum : resolveImpressionsGoal(p);
+    if (goal <= 0) continue;
+
+    const bookedFull =
+      assignedSum > 0
+        ? sumPerDayByDay(perDayImpressions, pStart, pEnd)
+        : allocateImpressionsByDay(pStart, pEnd, goal, darkDays, perDayImpressions);
+
+    let ioDays = byIoAndDay.get(key);
+    if (!ioDays) {
+      ioDays = new Map();
+      byIoAndDay.set(key, ioDays);
+    }
+    for (const [dateStr, val] of bookedFull) {
+      if (dateStr >= startStr && dateStr <= endStr) {
+        ioDays.set(dateStr, (ioDays.get(dateStr) ?? 0) + val);
+      }
+    }
+  }
+  return byIoAndDay;
 }
 
 function computeBookedByIoAndMonth(placements: PlacementRow[]): Map<string, Map<string, number>> {
@@ -595,6 +704,10 @@ async function getDashboardCacheRows(ioFilter: string, advertiserFilter: string)
   return (data ?? [])
     .map((r) => {
       const placementCount = r.placement_count != null ? Number(r.placement_count) : Number(r.active_order_count);
+      const mediaCost = Number(r.media_cost);
+      const mediaFees = Number(r.media_fees);
+      const celtraCost = Number(r.celtra_cost);
+      const totalCost = mediaCost + mediaFees + celtraCost;
       return {
         yearMonth: r.year_month,
         sumImpressions: Number(r.booked_impressions),
@@ -602,21 +715,13 @@ async function getDashboardCacheRows(ioFilter: string, advertiserFilter: string)
         placementCount,
         dataImpressions: Number(r.delivered_impressions),
         deliveredLines: Number(r.delivered_lines),
-        mediaCost: Number(r.media_cost),
-        mediaFees: Number(r.media_fees),
-        celtraCost: Number(r.celtra_cost),
-        totalCost: Number(r.total_cost),
+        mediaCost,
+        mediaFees,
+        celtraCost,
+        totalCost: Math.round(totalCost * 100) / 100,
         bookedRevenue: Number(r.booked_revenue),
       };
-    })
-    .filter(
-      (r) =>
-        r.placementCount > 0 ||
-        r.sumImpressions > 0 ||
-        r.dataImpressions > 0 ||
-        r.mediaCost > 0 ||
-        r.totalCost > 0
-    );
+    });
 }
 
 /** Upsert rows into dashboard_cache. Replaces all rows for io_filter + advertiser_filter. */
@@ -679,11 +784,12 @@ export async function getDashboardData(
       { tags: [DASHBOARD_CACHE_TAG], revalidate: 300 }
     )();
   }
-  const cached = await getDashboardDataFromCache(ioFilter, advertiserFilter);
-  const hasDspData = cached.some((r) => r.dataImpressions > 0 || r.mediaCost > 0);
-  if (cached.length > 0 && hasDspData) return cached;
   const ioKey = ioFilter?.trim() ?? "";
   const advKey = advertiserFilter?.trim() ?? "";
+  const advertiserOnly = !!advKey && !ioKey;
+  const cached = await getDashboardDataFromCache(ioFilter, advertiserFilter);
+  const hasDspData = cached.some((r) => r.dataImpressions > 0 || r.mediaCost > 0);
+  if (!advertiserOnly && cached.length > 0 && hasDspData) return cached;
   const fresh = await computePlacementsWithDspAggregated(ioKey || undefined, advKey || undefined);
   if (fresh.length > 0 && fresh.some((r) => r.dataImpressions > 0 || r.mediaCost > 0)) {
     await upsertDashboardCache(ioKey, advKey, fresh);
@@ -755,12 +861,17 @@ export async function refreshAllDashboardCache(): Promise<{ refreshed: number }>
   return { refreshed: toRefresh.length };
 }
 
+const APP_DATA_CACHE_TAG = "app-data";
+
 /** Refresh only the current selection (io + advertiser, or placement-filtered). For quick test before full refresh. */
 export async function refreshDashboardSelection(
   ioFilter?: string | null,
   advertiserFilter?: string | null,
   placementIdFilter?: string | null
 ): Promise<{ refreshed: boolean }> {
+  revalidateTag(APP_DATA_CACHE_TAG, "max");
+  revalidateTag(PLACEMENT_IO_CACHE_TAG, "max");
+  revalidateTag(LAST7_CACHE_TAG, "max");
   const placementKey = placementIdFilter?.trim();
   if (placementKey) {
     revalidateTag(DASHBOARD_CACHE_TAG, "max");
@@ -770,9 +881,14 @@ export async function refreshDashboardSelection(
   const advKey = advertiserFilter?.trim() ?? "";
   const dspSource = await getSourceByType("DSP");
   let sourceData: SourceData | null = null;
-  if (dspSource?.id) {
+  if (dspSource?.id && dspSource.entitySetName && dspSource.logicalName) {
     const ios = await getDistinctInsertionOrderIds(advKey || undefined);
-    sourceData = await getSourceDataFilteredByIos(dspSource.id, "cr4fe_insertionordergid", ios);
+    sourceData = await getSourceDataFilteredByIos(
+      dspSource.id,
+      "cr4fe_insertionordergid",
+      ios,
+      { entitySetName: dspSource.entitySetName!, logicalName: dspSource.logicalName! }
+    );
   }
   await refreshAndStoreDashboardData(ioKey || undefined, advKey || undefined, sourceData ?? undefined);
   return { refreshed: true };
@@ -789,9 +905,14 @@ async function computePlacementsWithDspAggregated(
   const advKey = advertiserFilter?.trim() ?? "";
   const placementKey = placementIdFilter?.trim() ?? undefined;
 
-  let placements = await getPlacementsWithIoDsp(ioKey || undefined, advKey || undefined, placementKey);
-  if (placements.length === 0 && placementKey) {
+  let placements: PlacementRow[];
+  if (placementKey) {
     placements = await getPlacementsByPlacementId(placementKey, advKey || undefined, ioKey || undefined);
+    if (placements.length === 0) return [];
+  } else if (advKey && !ioKey) {
+    placements = await getPlacementsForAdvertiserAll(advKey);
+  } else {
+    placements = await getPlacementsWithIoDsp(ioKey || undefined, advKey || undefined, placementKey);
   }
   if (placements.length === 0) return [];
 
@@ -827,11 +948,16 @@ async function computePlacementsWithDspAggregated(
   let sourceData = preFetchedSourceData && preFetchedSourceData.rows.length > 0 ? preFetchedSourceData : null;
   if (!sourceData && ioIds.size > 0) {
     const dspSource = await getSourceByType("DSP");
-    if (dspSource?.id) {
+    if (dspSource?.id && dspSource.entitySetName && dspSource.logicalName) {
       const realIos = Array.from(ioIds).filter((id) => !id.startsWith("_p:"));
       if (realIos.length > 0) {
         try {
-          sourceData = await getSourceDataFilteredByIos(dspSource.id, IO_FILTER_COL, realIos);
+          sourceData = await getSourceDataFilteredByIos(
+            dspSource.id,
+            IO_FILTER_COL,
+            realIos,
+            { entitySetName: dspSource.entitySetName!, logicalName: dspSource.logicalName! }
+          );
         } catch (err) {
           console.error("[dashboard-dsp] Dataverse fetch error:", err instanceof Error ? err.message : String(err));
         }
@@ -843,15 +969,17 @@ async function computePlacementsWithDspAggregated(
     const dateCol = findColumn(sourceData.rows[0] as Record<string, unknown>, DATE_COLUMNS);
     const imprCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IMPRESSIONS_COLUMNS);
     const mediaCostCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_COST_COLUMNS);
-    const mediaFeesCol = findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_FEES_COLUMNS);
     const advertiserCol = findColumn(sourceData.rows[0] as Record<string, unknown>, ADVERTISER_COLUMNS);
     const ioCol = findColumn(sourceData.rows[0] as Record<string, unknown>, IO_SOURCE_COLUMNS);
 
     if (dateCol && imprCol && mediaCostCol && ioCol) {
   for (const row of sourceData.rows) {
     const r = row as Record<string, unknown>;
-    const io = getVal(r, ioCol).trim();
-    if (!io || !ioIds.has(io)) continue;
+    const ioRaw = getVal(r, ioCol).trim();
+    if (!ioRaw) continue;
+    const ioParts = ioRaw.split(",").map((s) => s.trim()).filter(Boolean);
+    const io = ioParts.find((p) => ioIds.has(p)) ?? (ioIds.has(ioRaw) ? ioRaw : null);
+    if (!io) continue;
 
     const dateVal = r[dateCol];
     const ym = parseYearMonth(dateVal);
@@ -872,13 +1000,9 @@ async function computePlacementsWithDspAggregated(
     const rowMediaCost = parseNum(r[mediaCostCol]);
     agg.delivered += Math.floor(parseNum(r[imprCol]));
     agg.mediaCost += rowMediaCost;
-    if (mediaFeesCol) {
-      agg.mediaFees += parseNum(r[mediaFeesCol]);
-    } else if (advertiserCol) {
-      const advertiser = getVal(r, advertiserCol).trim();
-      const rate = MEDIA_FEES_BY_ADVERTISER[advertiser];
-      if (rate != null) agg.mediaFees += rowMediaCost * rate;
-    }
+    const advertiser = (advertiserCol ? getVal(r, advertiserCol) : "").trim();
+    const feeMultiplier = MEDIA_FEES_BY_ADVERTISER[advertiser] ?? 1;
+    agg.mediaFees += rowMediaCost * feeMultiplier;
   }
     }
   }
@@ -913,21 +1037,11 @@ async function computePlacementsWithDspAggregated(
       mediaFees += agg.mediaFees;
       celtraCost += (agg.delivered / 1000) * cpmCeltra;
       bookedRevenue += (bookedForIo / 1000) * cpmAdops;
-      if (agg.delivered > 0 || bookedForIo > 0) {
-        ioIdsInMonth.add(io);
-        placementCountInMonth += placementCountByIoAndMonth.get(io)?.get(ym) ?? 0;
-      }
+      ioIdsInMonth.add(io);
+      placementCountInMonth += placementCountByIoAndMonth.get(io)?.get(ym) ?? 0;
     }
 
-    const totalCost = mediaCost + celtraCost;
-
-    const isEmpty =
-      placementCountInMonth === 0 &&
-      bookedImpr === 0 &&
-      deliveredImpr === 0 &&
-      mediaCost === 0 &&
-      totalCost === 0;
-    if (isEmpty) continue;
+    const totalCost = mediaCost + mediaFees + celtraCost;
 
     result.push({
       yearMonth: ym,
@@ -964,6 +1078,240 @@ export async function getPlacementsWithDspAggregated(
 /** Revalidate dashboard cache. Call from refresh button. */
 export async function revalidateDashboardCache(): Promise<void> {
   revalidateTag(DASHBOARD_CACHE_TAG, "max");
+  revalidateTag(LAST7_CACHE_TAG, "max");
+  revalidateTag(PLACEMENT_IO_CACHE_TAG, "max");
+}
+
+export type Last7DaysRow = { date: string; bookedRevenue: number; totalCost: number; margin: number | null };
+
+const LAST7_CACHE_TAG = "dashboard-last7";
+
+/** Last 7 days (up to today) for a given yearMonth. Returns daily breakdown for Booked Revenue vs Total Cost tooltip. Cached 5 min. */
+export async function getLast7DaysForMonth(
+  yearMonth: string,
+  ioFilter?: string | null,
+  advertiserFilter?: string | null,
+  placementIdFilter?: string | null
+): Promise<Last7DaysRow[]> {
+  const ioKey = ioFilter?.trim() ?? "";
+  const advKey = advertiserFilter?.trim() ?? "";
+  const placementKey = placementIdFilter?.trim() ?? "";
+  return unstable_cache(
+    () => getLast7DaysForMonthInner(yearMonth, ioKey || undefined, advKey || undefined, placementKey || undefined),
+    ["dashboard-last7", yearMonth, ioKey, advKey, placementKey],
+    { tags: [LAST7_CACHE_TAG, DASHBOARD_CACHE_TAG], revalidate: 300 }
+  )();
+}
+
+async function getLast7DaysForMonthInner(
+  yearMonth: string,
+  ioFilter?: string,
+  advertiserFilter?: string,
+  placementIdFilter?: string
+): Promise<Last7DaysRow[]> {
+  const match = yearMonth.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const monthStart = new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, 1);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+
+  if (yesterday < monthStart) return [];
+
+  const rangeEnd = yesterday > monthEnd ? new Date(monthEnd) : new Date(yesterday);
+  const rangeStart = new Date(rangeEnd);
+  rangeStart.setDate(rangeStart.getDate() - 6);
+  if (rangeStart < monthStart) rangeStart.setTime(monthStart.getTime());
+
+  const dayCount = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (dayCount <= 0) return [];
+
+  return getDailyBreakdownInner(
+    rangeStart,
+    rangeEnd,
+    dayCount,
+    ioFilter,
+    advertiserFilter,
+    placementIdFilter
+  );
+}
+
+/** Full month daily breakdown (days 1 through last of month). For side pane. Cached 5 min. */
+export async function getDailyByMonth(
+  yearMonth: string,
+  ioFilter?: string | null,
+  advertiserFilter?: string | null,
+  placementIdFilter?: string | null
+): Promise<Last7DaysRow[]> {
+  const ioKey = ioFilter?.trim() ?? "";
+  const advKey = advertiserFilter?.trim() ?? "";
+  const placementKey = placementIdFilter?.trim() ?? "";
+  return unstable_cache(
+    () => getDailyByMonthInner(yearMonth, ioKey || undefined, advKey || undefined, placementKey || undefined),
+    ["dashboard-daily-month", yearMonth, ioKey, advKey, placementKey],
+    { tags: [LAST7_CACHE_TAG, DASHBOARD_CACHE_TAG], revalidate: 300 }
+  )();
+}
+
+async function getDailyByMonthInner(
+  yearMonth: string,
+  ioFilter?: string,
+  advertiserFilter?: string,
+  placementIdFilter?: string
+): Promise<Last7DaysRow[]> {
+  const match = yearMonth.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return [];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const monthStart = new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, 1);
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+
+  if (yesterday < monthStart) return [];
+
+  const rangeStart = monthStart;
+  const rangeEnd = yesterday > monthEnd ? new Date(monthEnd) : new Date(yesterday);
+  const dayCount = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  if (dayCount <= 0) return [];
+
+  return getDailyBreakdownInner(
+    rangeStart,
+    rangeEnd,
+    dayCount,
+    ioFilter,
+    advertiserFilter,
+    placementIdFilter
+  );
+}
+
+async function getDailyBreakdownInner(
+  rangeStart: Date,
+  rangeEnd: Date,
+  dayCount: number,
+  ioFilter?: string,
+  advertiserFilter?: string,
+  placementIdFilter?: string
+): Promise<Last7DaysRow[]> {
+  let placements: PlacementRow[];
+  if (placementIdFilter) {
+    placements = await getPlacementsByPlacementId(placementIdFilter, advertiserFilter || undefined, ioFilter || undefined);
+    if (placements.length === 0) return [];
+  } else if (advertiserFilter && !ioFilter) {
+    placements = await getPlacementsForAdvertiserAll(advertiserFilter);
+  } else {
+    placements = await getPlacementsWithIoDsp(ioFilter || undefined, advertiserFilter || undefined, placementIdFilter);
+  }
+  if (placements.length === 0) return [];
+
+  const bookedByIoAndDay = computeBookedByIoAndDay(placements, rangeStart, rangeEnd);
+  const ioIds = new Set<string>();
+  for (const p of placements) {
+    const key = placementGroupKey(p);
+    if (key) ioIds.add(key);
+  }
+
+  const ioToCpmAdops = new Map<string, number>();
+  const ioToCpmCeltra = new Map<string, number>();
+  for (const p of placements) {
+    const key = placementGroupKey(p);
+    if (!key) continue;
+    if (!ioToCpmAdops.has(key)) ioToCpmAdops.set(key, parseNum(p.cpm_adops));
+    if (!ioToCpmCeltra.has(key)) ioToCpmCeltra.set(key, parseNum(p.cpm_celtra));
+  }
+
+  type DayAgg = { delivered: number; mediaCost: number; mediaFees: number };
+  const byDateIo = new Map<string, Map<string, DayAgg>>();
+
+  const IO_FILTER_COL = "cr4fe_insertionordergid";
+  let sourceData: SourceData | null = null;
+  const realIos = Array.from(ioIds).filter((id) => !id.startsWith("_p:"));
+  if (realIos.length > 0) {
+    const dspSource = await getSourceByType("DSP");
+    if (dspSource?.id && dspSource.entitySetName && dspSource.logicalName) {
+      try {
+        sourceData = await getSourceDataFilteredByIos(
+          dspSource.id,
+          IO_FILTER_COL,
+          realIos,
+          { entitySetName: dspSource.entitySetName!, logicalName: dspSource.logicalName! }
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const dateCol = sourceData?.rows?.[0] ? findColumn(sourceData.rows[0] as Record<string, unknown>, DATE_COLUMNS) : null;
+  const imprCol = sourceData?.rows?.[0] ? findColumn(sourceData.rows[0] as Record<string, unknown>, IMPRESSIONS_COLUMNS) : null;
+  const mediaCostCol = sourceData?.rows?.[0] ? findColumn(sourceData.rows[0] as Record<string, unknown>, MEDIA_COST_COLUMNS) : null;
+  const advertiserCol = sourceData?.rows?.[0] ? findColumn(sourceData.rows[0] as Record<string, unknown>, ADVERTISER_COLUMNS) : null;
+  const ioCol = sourceData?.rows?.[0] ? findColumn(sourceData.rows[0] as Record<string, unknown>, IO_SOURCE_COLUMNS) : null;
+
+  if (sourceData?.rows?.length && dateCol && imprCol && mediaCostCol && ioCol) {
+    const rangeStartStr = toDateStr(rangeStart);
+    const rangeEndStr = toDateStr(rangeEnd);
+    for (const row of sourceData.rows) {
+      const r = row as Record<string, unknown>;
+      const dateVal = r[dateCol];
+      const dateStr = parseDate(dateVal) ? toDateStr(parseDate(dateVal)!) : null;
+      if (!dateStr || dateStr < rangeStartStr || dateStr > rangeEndStr) continue;
+
+      const ioRaw = getVal(r, ioCol).trim();
+      if (!ioRaw) continue;
+      const ioParts = ioRaw.split(",").map((s) => s.trim()).filter(Boolean);
+      const io = ioParts.find((p) => ioIds.has(p)) ?? (ioIds.has(ioRaw) ? ioRaw : null);
+      if (!io) continue;
+
+      let byIo = byDateIo.get(dateStr);
+      if (!byIo) {
+        byIo = new Map();
+        byDateIo.set(dateStr, byIo);
+      }
+      let agg = byIo.get(io);
+      if (!agg) {
+        agg = { delivered: 0, mediaCost: 0, mediaFees: 0 };
+        byIo.set(io, agg);
+      }
+      const rowMediaCost = parseNum(r[mediaCostCol]);
+      agg.delivered += Math.floor(parseNum(r[imprCol]));
+      agg.mediaCost += rowMediaCost;
+      const advertiser = (advertiserCol ? getVal(r, advertiserCol) : "").trim();
+      agg.mediaFees += rowMediaCost * (MEDIA_FEES_BY_ADVERTISER[advertiser] ?? 1);
+    }
+  }
+
+  const result: Last7DaysRow[] = [];
+  for (let i = 0; i < dayCount; i++) {
+    const d = new Date(rangeStart);
+    d.setDate(d.getDate() + i);
+    const dateStr = toDateStr(d);
+    let bookedRevenue = 0;
+    let totalCost = 0;
+
+    for (const io of ioIds) {
+      const bookedImpr = bookedByIoAndDay.get(io)?.get(dateStr) ?? 0;
+      const cpmAdops = ioToCpmAdops.get(io) ?? 0;
+      bookedRevenue += (bookedImpr / 1000) * cpmAdops;
+
+      const agg = byDateIo.get(dateStr)?.get(io) ?? { delivered: 0, mediaCost: 0, mediaFees: 0 };
+      const cpmCeltra = ioToCpmCeltra.get(io) ?? 0;
+      totalCost += agg.mediaCost + agg.mediaFees + (agg.delivered / 1000) * cpmCeltra;
+    }
+
+    const margin = bookedRevenue > 0 ? (100 * (bookedRevenue - totalCost)) / bookedRevenue : null;
+    result.push({
+      date: dateStr,
+      bookedRevenue: Math.round(bookedRevenue * 100) / 100,
+      totalCost: Math.round(totalCost * 100) / 100,
+      margin: margin != null ? Math.round(margin * 100) / 100 : null,
+    });
+  }
+  return result.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export type PlacementWithIoDsp = {
