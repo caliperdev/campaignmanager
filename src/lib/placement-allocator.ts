@@ -214,3 +214,77 @@ export function allocateImpressionsByMonth(
 
   return result;
 }
+
+/**
+ * Same as allocateImpressionsByMonth but returns Map<dateStr, daily impressions> for day-level breakdown.
+ */
+export function allocateImpressionsByDay(
+  start: Date,
+  end: Date,
+  totalImpressions: number,
+  darkDays?: string[],
+  perDayImpressions?: Record<string, number>
+): Map<string, number> {
+  const result = new Map<string, number>();
+  if (totalImpressions <= 0) return result;
+
+  const flightDays = getFlightDays(start, end, darkDays);
+  if (flightDays.length === 0) return result;
+
+  const perDay = perDayImpressions ?? {};
+  const daysWithOverride = new Set(Object.keys(perDay));
+  const allocatableDays = flightDays.filter((d) => !daysWithOverride.has(toDateStr(d)));
+  const rawOverrideSum = Object.values(perDay).reduce((a, b) => a + b, 0);
+  const overrideSum = Math.min(rawOverrideSum, totalImpressions);
+  const scale = rawOverrideSum > 0 ? overrideSum / rawOverrideSum : 1;
+  const remaining = totalImpressions - overrideSum;
+
+  if (allocatableDays.length === 0) {
+    const overrideDays = flightDays.filter((d) => (perDay[toDateStr(d)] ?? 0) > 0);
+    const scaled = overrideDays.map((d) => Math.floor((perDay[toDateStr(d)] ?? 0) * scale));
+    const sum = scaled.reduce((a, b) => a + b, 0);
+    const remainder = overrideSum - sum;
+    for (let i = 0; i < overrideDays.length; i++) {
+      const d = overrideDays[i];
+      const dateStr = toDateStr(d);
+      const val = Math.floor(scaled[i]! + (i === overrideDays.length - 1 ? remainder : 0));
+      result.set(dateStr, (result.get(dateStr) ?? 0) + val);
+    }
+    return result;
+  }
+
+  const dailyBase = Math.floor(remaining / allocatableDays.length);
+  const remainder = remaining - dailyBase * allocatableDays.length;
+
+  for (let i = 0; i < allocatableDays.length; i++) {
+    const d = allocatableDays[i];
+    const dateStr = toDateStr(d);
+    const daily = Math.floor(dailyBase + (i === allocatableDays.length - 1 ? remainder : 0));
+    result.set(dateStr, (result.get(dateStr) ?? 0) + daily);
+  }
+
+  const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const overrideEntries = Object.entries(perDay)
+    .filter(([, v]) => v > 0)
+    .map(([dateStr, val]) => {
+      const d = new Date(dateStr + "T12:00:00");
+      return { val, d, dateStr };
+    })
+    .filter(({ d }) => !Number.isNaN(d.getTime()))
+    .filter(({ d }) => {
+      const dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return dDay >= startDay && dDay <= endDay;
+    })
+    .sort((a, b) => a.d.getTime() - b.d.getTime());
+  const scaled = overrideEntries.map(({ val }) => Math.floor(val * scale));
+  const overrideSumActual = scaled.reduce((a, b) => a + b, 0);
+  const overrideRemainder = overrideSum - overrideSumActual;
+  for (let i = 0; i < overrideEntries.length; i++) {
+    const { dateStr } = overrideEntries[i]!;
+    const val = Math.floor(scaled[i]! + (i === overrideEntries.length - 1 ? overrideRemainder : 0));
+    result.set(dateStr, (result.get(dateStr) ?? 0) + val);
+  }
+
+  return result;
+}
