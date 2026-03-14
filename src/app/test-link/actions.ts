@@ -141,19 +141,19 @@ export async function getSourceDataFull(sourceId: string): Promise<SourceData | 
   return null;
 }
 
-/** Fetch source rows for multiple IO values. Batches Dataverse requests per IO, merges results. */
+/** Fetch DSP rows filtered by IO column. Use sourceFromDb when available to avoid stale cache. */
 export async function getSourceDataFilteredByIos(
   sourceId: string,
   filterColumn: string,
-  ioValues: string[]
+  ioValues: string[],
+  sourceFromDb?: { entitySetName: string; logicalName: string } | null
 ): Promise<SourceData | null> {
   const distinct = [...new Set(ioValues.filter((v) => v != null && v !== ""))];
   if (distinct.length === 0) return getSourceDataFull(sourceId);
-  if (distinct.length === 1) return getSourceDataFiltered(sourceId, filterColumn, distinct[0]);
+  if (distinct.length === 1 && !sourceFromDb) return getSourceDataFiltered(sourceId, filterColumn, distinct[0]);
 
-  const source = await getSource(sourceId);
-  if (!source) return null;
-  if (!source.entitySetName || !source.logicalName) return getSourceDataFull(sourceId);
+  const source = sourceFromDb ?? (await getSource(sourceId));
+  if (!source?.entitySetName || !source?.logicalName) return getSourceDataFull(sourceId);
 
   const CONCURRENCY = 5;
   const allRows: Record<string, string>[] = [];
