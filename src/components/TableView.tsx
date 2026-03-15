@@ -48,7 +48,7 @@ function parseDecimalInput(value: string): string {
 }
 
 function isDecimalColumn(col: string): boolean {
-  return col === "CPM Client" || col === "CPM AdOps";
+  return col === "CPM Client" || col === "CPM AdOps" || col === "CPM Celtra";
 }
 
 function isNumericColumn(col: string): boolean {

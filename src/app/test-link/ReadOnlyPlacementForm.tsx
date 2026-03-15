@@ -53,10 +53,7 @@ function getRowValue(row: Record<string, unknown>, col: string): string {
   return String(v ?? "");
 }
 
-const NUMERIC_PLACEMENT_FIELDS = new Set(["Impressions", "CPM Client", "CPM AdOps"]);
-
-const SHOW_HIDDEN_FIELDS_TOOLTIP = true; // Set to false to remove tooltip
-const HIDDEN_PLACEMENT_FIELDS = ["CPM Celtra"];
+const NUMERIC_PLACEMENT_FIELDS = new Set(["Impressions", "CPM Client", "CPM AdOps", "CPM Celtra"]);
 
 function parseAllocatorData(row: Record<string, unknown>): { darkRanges: DarkRange[]; assignedRanges: AssignedRange[] } {
   let darkRanges: DarkRange[] = [];
@@ -209,14 +206,6 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
           <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
             Placement details
           </h2>
-          {SHOW_HIDDEN_FIELDS_TOOLTIP && (
-            <span
-              title={`Hidden fields: ${HIDDEN_PLACEMENT_FIELDS.join(", ")}`}
-              style={{ fontSize: 12, color: "var(--text-tertiary)", cursor: "help" }}
-            >
-              (Hidden fields: {HIDDEN_PLACEMENT_FIELDS.length})
-            </span>
-          )}
         </div>
 
         <div style={{ display: "flex", gap: 16, alignItems: "stretch", minHeight: 0 }}>
@@ -334,7 +323,6 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
             }}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 24, borderBottom: "1px solid var(--border-light)" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>{`{DSP}`}</span>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
                 <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>DSP</span>
                 <input type="text" value={placement["DSP"] ?? ""} readOnly style={{ ...readOnlyStyle, width: "100%" }} />
@@ -360,7 +348,13 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 24, borderBottom: "1px solid var(--border-light)" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>{`{ADS}`}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>CPM Celtra</span>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
+                <input type="text" value={placement["CPM Celtra"] ?? ""} readOnly style={{ ...readOnlyStyle, width: "100%" }} />
+              </label>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingBottom: 24, borderBottom: "1px solid var(--border-light)" }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
                 <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>ADS</span>
                 <input type="text" value={placement["ADS"] ?? ""} readOnly style={{ ...readOnlyStyle, width: "100%" }} />
@@ -372,7 +366,6 @@ export function ReadOnlyPlacementForm({ detail }: { detail: PlacementDetail }) {
             </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase" }}>{`{VRF}`}</span>
                 <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 14 }}>
                   <span style={{ fontWeight: 500, color: "var(--text-secondary)" }}>VRF</span>
                   <input type="text" value={placement["VRF"] ?? ""} readOnly style={{ ...readOnlyStyle, width: "100%" }} />
